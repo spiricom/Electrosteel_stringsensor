@@ -1,7 +1,7 @@
 [PreviousGenFiles]
-HeaderPath=/Users/josnyder/dev/Electrosteel/string_sensor_board/Inc
+HeaderPath=/Users/josnyder/dev/Electrosteel_stringsensor/Inc
 HeaderFiles=gpio.h;adc.h;debug.h;dma.h;ffconf.h;bsp_driver_sd.h;sd_diskio.h;fatfs.h;fatfs_platform.h;fmc.h;i2c.h;rng.h;sai.h;sdmmc.h;spi.h;stm32h7xx_it.h;stm32h7xx_hal_conf.h;main.h;
-SourcePath=/Users/josnyder/dev/Electrosteel/string_sensor_board/Src
+SourcePath=/Users/josnyder/dev/Electrosteel_stringsensor/Src
 SourceFiles=gpio.c;adc.c;debug.c;dma.c;bsp_driver_sd.c;sd_diskio.c;fatfs.c;fatfs_platform.c;fmc.c;i2c.c;rng.c;sai.c;sdmmc.c;spi.c;stm32h7xx_it.c;stm32h7xx_hal_msp.c;main.c;
 
 [PreviousLibFiles]

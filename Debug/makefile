@@ -42,8 +42,8 @@ cube_for_new_genera_brain4.bin \
 all: cube_for_new_genera_brain4.elf secondary-outputs
 
 # Tool invocations
-cube_for_new_genera_brain4.elf: $(OBJS) $(USER_OBJS) /Users/josnyder/dev/Electrosteel/string_sensor_board/STM32H743ZITX_FLASH.ld
-	arm-none-eabi-gcc -o "cube_for_new_genera_brain4.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"/Users/josnyder/dev/Electrosteel/string_sensor_board/STM32H743ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="cube_for_new_genera_brain4.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+cube_for_new_genera_brain4.elf: $(OBJS) $(USER_OBJS) /Users/josnyder/dev/Electrosteel_stringsensor/STM32H743ZITX_FLASH.ld
+	arm-none-eabi-gcc -o "cube_for_new_genera_brain4.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"/Users/josnyder/dev/Electrosteel_stringsensor/STM32H743ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="cube_for_new_genera_brain4.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
