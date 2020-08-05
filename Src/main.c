@@ -37,6 +37,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pluck_detect.h"
+
+#define SAMPLE_RATE 48000
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -75,6 +77,16 @@ int32_t audioInBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t ADC_values[NUM_ADC_CHANNELS * ADC_BUFFER_SIZE] __ATTR_RAM_D2;
 
 
+#define SMALL_MEM_SIZE 10000
+char smallMemory[SMALL_MEM_SIZE];
+
+#define MEDIUM_MEM_SIZE 400000
+char mediumMemory[MEDIUM_MEM_SIZE] __ATTR_RAM_D1;
+
+tMempool mediumPool;
+
+tPluckDetectorInt myPluck[NUM_ADC_CHANNELS];
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -83,6 +95,7 @@ void SystemClock_Config(void);
 void MPU_Conf(void);
 void SDRAM_Initialization_sequence(void);
 static void FS_FileOperations(void);
+float randomNumber(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -157,13 +170,16 @@ int main(void)
 
  if(BSP_SD_IsDetected())
  {
-
-
-
-
    FS_FileOperations();
-
  }
+	LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
+
+	//tMempool_init (&mediumPool, mediumMemory, MEDIUM_MEM_SIZE);
+ for (int j = 0; j < NUM_ADC_CHANNELS; j++)
+ {
+	 tPluckDetectorInt_init(&myPluck[j]);
+ }
+
  HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&ADC_values,NUM_ADC_CHANNELS * ADC_BUFFER_SIZE);
   /* USER CODE END 2 */
 
@@ -277,6 +293,17 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+
+float randomNumber(void) {
+
+	uint32_t rand;
+	HAL_RNG_GenerateRandomNumber(&hrng, &rand);
+	float num = (float)rand * INV_TWO_TO_32;
+	return num;
+}
+
+
 #define SDRAM_TIMEOUT ((uint32_t)0xFFFF)
 
 #define SDRAM_MODEREG_BURST_LENGTH_1             ((uint16_t)0x0000)
@@ -360,13 +387,7 @@ void SDRAM_Initialization_sequence(void)
 }
 
 
-float randomNumber(void) {
 
-	uint32_t rand;
-	HAL_RNG_GenerateRandomNumber(&hrng, &rand);
-	float num = (float)rand * INV_TWO_TO_32;
-	return num;
-}
 volatile FRESULT res2;
 uint8_t rtext[100];                                   /* File read buffer */
 uint32_t byteswritten, bytesread;                     /* File write/read counts */
@@ -744,6 +765,7 @@ void MPU_Conf(void)
 }
 
 uint16_t stringPositions[10];
+volatile int didPlucked[NUM_ADC_CHANNELS];
 
 void ADC_Frame(int offset)
 {
@@ -756,6 +778,13 @@ void ADC_Frame(int offset)
 		for (int j = 0; j < NUM_ADC_CHANNELS; j++)
 		{
 			int tempInt = ADC_values[(i*NUM_ADC_CHANNELS) + j];
+
+			didPlucked[j] = tPluckDetectorInt_tick(&myPluck[j], tempInt);
+			if (didPlucked[j] > 0)
+			{
+				//a pluck happened! send a message over SPI to the other ICs
+				//TODO: a pluck message
+			}
 			//float tempSamp = (((float)tempInt - INV_TWO_TO_15) * INV_TWO_TO_15);
 
 			//stringPositions[j] =  ((uint16_t)SPI_RX[j * 2] << 8) + ((uint16_t)SPI_RX[(j * 2) + 1] & 0xff);
@@ -768,7 +797,7 @@ void ADC_Frame(int offset)
 
 			//tempSamp = tHighpass_tick(&opticalHighpass[j+NUM_STRINGS], tHighpass_tick(&opticalHighpass[j], tempSamp));
 			//itoa(SDWriteIndex, wtext, 4);
-
+			/*
 			if (SDReady)
 			{
 				writeToSD(SDWriteIndex, tempInt, j);
@@ -781,7 +810,7 @@ void ADC_Frame(int offset)
 					//HAL_SAI_DMAStop(&hsai_BlockB1);
 				}
 			}
-
+			*/
 /*			}
 			for (int k = 0; k < FILTER_ORDER; k++)
 			{

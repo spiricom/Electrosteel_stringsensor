@@ -8,7 +8,7 @@
 #ifndef PLUCK_DETECT_H_
 #define PLUCK_DETECT_H_
 //#include "AVLtree.h"
-
+#include "leaf.h"
 	/* Angie Hugeback Pluck Detection Algorithm designed for Snyderphonics Electrobass and Electrosteel */
 	typedef struct _tPluckDetectorInt
 	{
@@ -70,13 +70,13 @@
 
 	} _tPluckDetectorInt;
 
-	typedef _tPluckDetector* tPluckDetectorInt;
+	typedef _tPluckDetectorInt* tPluckDetectorInt;
 
 	void    tPluckDetectorInt_init          (tPluckDetectorInt* const);
-	void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const, tMempool* const);
+	void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const, tMempool* const mp);
 	void    tPluckDetectorInt_free          (tPluckDetectorInt* const);
 
-	uint   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input);
+	int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input);
 
 
 #endif /* PLUCK_DETECT_H_ */

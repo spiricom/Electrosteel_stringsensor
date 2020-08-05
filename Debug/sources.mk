@@ -22,4 +22,6 @@ Middlewares/Third_Party/FatFs/src \
 Middlewares/Third_Party/FatFs/src/option \
 Src \
 Startup \
+leaf/leaf/Externals \
+leaf/leaf/Src \
 

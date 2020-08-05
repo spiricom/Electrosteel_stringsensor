@@ -1,3 +1,5 @@
+#include "pluck_detect.h"
+
 
 int LEAF_sign(int x) {
     return (x > 0) - (x < 0);
@@ -39,12 +41,12 @@ void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const pd, tMempool* 
 	p->midpoint_estimate = 48552;
 	p->delay_since_last_detect = 0;
 	p->dir_count = 0;
-	p->ready_for_pluck = TRUE;
+	p->ready_for_pluck = 1;
 	p->Pindex = 1;
 	p->totalNumChangepoints = 0;
 
 	p->smoothed = 0;//Mean of the last [SMOOTHING_WINDOW] samples
-	up->smoothedAccum = 0;
+	p->smoothedAccum = 0;
 	p->super_smoothed = 0;//Mean of the last [SUPER_SMOOTHING_WINDOW] smoothed values
 	p->super_smoothedAccum = 0;
 
@@ -82,8 +84,10 @@ void    tPluckDetectorInt_free          (tPluckDetectorInt* const pd)
     mpool_free((char*)p, p->mempool);
 }
 
-int   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input)
+int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 {
+	 _tPluckDetectorInt* p = *pd;
+
 	int pluckHappened = -1;
 
 	//update smoothed for current sample
@@ -201,7 +205,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input)
 
 	if (p->ready_for_pluck==0)
 	{
-		if ((p->dir_count > p->min_same_dir_steps) && (p->outside_envelope==1))
+		if ((p->dir_count > p->min_same_direction_steps) && (outside_envelope==1))
 		{
 			p->ready_for_pluck = 1;
 		}
@@ -291,7 +295,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input)
 	    		tempZeroCheck = 1; //prevent divide by zero
 	    	}
 			float ratio_value_diffs_1 = ((float)abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[2])) / (float)tempZeroCheck;
-			int spread_value_1 = abs(prior_changepoints_value[4] - prior_changepoints_value[3]);
+			int spread_value_1 = abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[3]);
 			int falls_about_midpoint_1 = ((dirs_from_midpoint[2] == dirs_from_midpoint[4]) && (dirs_from_midpoint[3] != dirs_from_midpoint[4]));
 
 
@@ -302,7 +306,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input)
 	    	}
 
 			float ratio_value_diffs_2 = ((float)abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[0])) / (float)tempZeroCheck;
-			int spread_value_2 = abs(prior_changepoints_value[0] - prior_changepoints_value[1]);
+			int spread_value_2 = abs(p->prior_changepoints_value[0] - p->prior_changepoints_value[1]);
 			int falls_about_midpoint_2 = ( (dirs_from_midpoint[0] == dirs_from_midpoint[4]) && (dirs_from_midpoint[0] != dirs_from_midpoint[1]) && (dirs_from_midpoint[0] != dirs_from_midpoint[3]));
 
 
@@ -333,7 +337,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input)
 				tempMax = width_differences[3];
 			}
 
-			int firstTest = (ratio_value_diffs_1 < p->max_ratio_value_diffs) && (spread_value_1 > p->min_value_spread) && (tempVariance < max_var_diff_width) && (tempMax < max_width_is_resonating) && (falls_about_midpoint_1==1);
+			int firstTest = (ratio_value_diffs_1 < p->max_ratio_value_diffs) && (spread_value_1 > p->min_value_spread) && (tempVariance < p->max_var_diff_width) && (tempMax < p->max_width_is_resonating);// && (falls_about_midpoint_1==1);
 
 
 			//### 5-POINT PATTERN
@@ -355,7 +359,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input)
 				tempMax = width_differences[i];
 			}
 
-			int secondTest = (ratio_value_diffs_2 < p->max_ratio_value_diffs) && (spread_value_2 > p->min_value_spread) && (tempVariance < max_var_diff_width) && (tempMax <max_width_is_resonating) && (falls_about_midpoint_2==1);
+			int secondTest = (ratio_value_diffs_2 < p->max_ratio_value_diffs) && (spread_value_2 > p->min_value_spread) && (tempVariance < p->max_var_diff_width) && (tempMax < p->max_width_is_resonating);// && (falls_about_midpoint_2==1);
 
 			if (firstTest || secondTest)
 			{
@@ -374,12 +378,12 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input)
 						p->pluck_strength = p->envelope_max - p->envelope_min;
 						pluckHappened = p->pluck_strength;
 						//adding this - not sure if it's what Angie meant:
-						p->ready_for_pluck = FALSE;
+						p->ready_for_pluck = 0;
 					}
 				}
 				else
 				{
-					is_pluck = FALSE;
+					is_pluck = 0;
 				}
 
 				//### IF WE HAVE HAD AT LEAST THREE DETECTIONS OF RESONANCE WITHIN THE SAME PLUCK'S SIGNAL
@@ -422,5 +426,6 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const, int input)
 	//### STORE CURRENT VALUES TO COMPARE AGAINST IN NEXT ITERATION
 	p->prior_super_smoothed = p->super_smoothed;
 	p->prior_smoothed = p->smoothed;
+	return pluckHappened;
 }
 

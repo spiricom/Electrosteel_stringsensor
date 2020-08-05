@@ -11,7 +11,7 @@
 
 #include "AVLtree.h"
 #include "leaf.h"
-#include "audiostream.h"
+//#include "audiostream.h"
 
 int AVL_memory_position = 0;
 int AVL_memory_offset = 0;
