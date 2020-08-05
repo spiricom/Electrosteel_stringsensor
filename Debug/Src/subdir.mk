@@ -4,6 +4,7 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
+../Src/AVLtree.c \
 ../Src/adc.c \
 ../Src/bsp_driver_sd.c \
 ../Src/debug.c \
@@ -14,6 +15,7 @@ C_SRCS += \
 ../Src/gpio.c \
 ../Src/i2c.c \
 ../Src/main.c \
+../Src/pluck_detect.c \
 ../Src/rng.c \
 ../Src/sai.c \
 ../Src/sd_diskio.c \
@@ -26,6 +28,7 @@ C_SRCS += \
 ../Src/system_stm32h7xx.c 
 
 OBJS += \
+./Src/AVLtree.o \
 ./Src/adc.o \
 ./Src/bsp_driver_sd.o \
 ./Src/debug.o \
@@ -36,6 +39,7 @@ OBJS += \
 ./Src/gpio.o \
 ./Src/i2c.o \
 ./Src/main.o \
+./Src/pluck_detect.o \
 ./Src/rng.o \
 ./Src/sai.o \
 ./Src/sd_diskio.o \
@@ -48,6 +52,7 @@ OBJS += \
 ./Src/system_stm32h7xx.o 
 
 C_DEPS += \
+./Src/AVLtree.d \
 ./Src/adc.d \
 ./Src/bsp_driver_sd.d \
 ./Src/debug.d \
@@ -58,6 +63,7 @@ C_DEPS += \
 ./Src/gpio.d \
 ./Src/i2c.d \
 ./Src/main.d \
+./Src/pluck_detect.d \
 ./Src/rng.d \
 ./Src/sai.d \
 ./Src/sd_diskio.d \
@@ -71,6 +77,8 @@ C_DEPS += \
 
 
 # Each subdirectory must supply rules for building sources it contributes
+Src/AVLtree.o: ../Src/AVLtree.c
+	arm-none-eabi-gcc "$<" -mcpu=cortex-m7 -std=gnu11 -g3 -DUSE_HAL_DRIVER -DSTM32H743xx -DDEBUG -c -I../Inc -I../Drivers/CMSIS/Include -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Middlewares/Third_Party/FatFs/src -I../Drivers/STM32H7xx_HAL_Driver/Inc -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -MMD -MP -MF"Src/AVLtree.d" -MT"$@" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "$@"
 Src/adc.o: ../Src/adc.c
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m7 -std=gnu11 -g3 -DUSE_HAL_DRIVER -DSTM32H743xx -DDEBUG -c -I../Inc -I../Drivers/CMSIS/Include -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Middlewares/Third_Party/FatFs/src -I../Drivers/STM32H7xx_HAL_Driver/Inc -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -MMD -MP -MF"Src/adc.d" -MT"$@" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "$@"
 Src/bsp_driver_sd.o: ../Src/bsp_driver_sd.c
@@ -91,6 +99,8 @@ Src/i2c.o: ../Src/i2c.c
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m7 -std=gnu11 -g3 -DUSE_HAL_DRIVER -DSTM32H743xx -DDEBUG -c -I../Inc -I../Drivers/CMSIS/Include -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Middlewares/Third_Party/FatFs/src -I../Drivers/STM32H7xx_HAL_Driver/Inc -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -MMD -MP -MF"Src/i2c.d" -MT"$@" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "$@"
 Src/main.o: ../Src/main.c
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m7 -std=gnu11 -g3 -DUSE_HAL_DRIVER -DSTM32H743xx -DDEBUG -c -I../Inc -I../Drivers/CMSIS/Include -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Middlewares/Third_Party/FatFs/src -I../Drivers/STM32H7xx_HAL_Driver/Inc -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -MMD -MP -MF"Src/main.d" -MT"$@" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "$@"
+Src/pluck_detect.o: ../Src/pluck_detect.c
+	arm-none-eabi-gcc "$<" -mcpu=cortex-m7 -std=gnu11 -g3 -DUSE_HAL_DRIVER -DSTM32H743xx -DDEBUG -c -I../Inc -I../Drivers/CMSIS/Include -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Middlewares/Third_Party/FatFs/src -I../Drivers/STM32H7xx_HAL_Driver/Inc -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -MMD -MP -MF"Src/pluck_detect.d" -MT"$@" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "$@"
 Src/rng.o: ../Src/rng.c
 	arm-none-eabi-gcc "$<" -mcpu=cortex-m7 -std=gnu11 -g3 -DUSE_HAL_DRIVER -DSTM32H743xx -DDEBUG -c -I../Inc -I../Drivers/CMSIS/Include -I../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32H7xx/Include -I../Middlewares/Third_Party/FatFs/src -I../Drivers/STM32H7xx_HAL_Driver/Inc -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -MMD -MP -MF"Src/rng.d" -MT"$@" --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -o "$@"
 Src/sai.o: ../Src/sai.c

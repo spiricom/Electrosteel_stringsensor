@@ -36,6 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "pluck_detect.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
