@@ -7,7 +7,6 @@
 
 #ifndef PLUCK_DETECT_H_
 #define PLUCK_DETECT_H_
-//#include "AVLtree.h"
 #include "leaf.h"
 	/* Angie Hugeback Pluck Detection Algorithm designed for Snyderphonics Electrobass and Electrosteel */
 	typedef struct _tPluckDetectorInt
@@ -17,8 +16,7 @@
 
 		tRingBufferInt smoothed_array;
 		tRingBufferInt super_smoothed_array;
-		tRingBufferInt last400_smoothed; // making this 512 for now to use ringbuffer object
-
+		tRingBufferInt minmax_samples;
 
 		int current_dir;
 		int envelope_min;
@@ -36,6 +34,7 @@
 		int prior_detect_3_index;
 		int prior_detect_3_value;
 		uint midpoint_estimate;
+		uint is_midpoint_calculated;
 		int delay_since_last_detect;
 		int dir_count;
 		int ready_for_pluck;
@@ -57,16 +56,10 @@
 		int min_same_direction_steps;
 		int smoothing_window;
 		int super_smoothing_window;
-		int envelope_window;
+		int minmax_window;
+		uint min_recent_value;
+		uint max_recent_value;
 
-		uint myMin;
-		uint myMax;
-
-		//struct AVLNode *root = NULL;
-
-		//char* AVL_array;
-
-		//int AVL_arraySize;
 
 	} _tPluckDetectorInt;
 
@@ -75,7 +68,7 @@
 	void    tPluckDetectorInt_init          (tPluckDetectorInt* const);
 	void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const, tMempool* const mp);
 	void    tPluckDetectorInt_free          (tPluckDetectorInt* const);
-
+	int   tPluckDetectorInt_calculateMinMax          (tPluckDetectorInt* const pd, int input);
 	int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input);
 
 

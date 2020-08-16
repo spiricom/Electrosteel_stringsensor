@@ -52,7 +52,6 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define INV_TWO_TO_32 0.000000000232831f
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -60,6 +59,10 @@
 /* USER CODE BEGIN PV */
 uint8_t SPI_TX[16] __ATTR_RAM_D2;
 uint8_t SPI_RX[16] __ATTR_RAM_D2;
+
+uint8_t SPI_PLUCK_TX[20] __ATTR_RAM_D2;
+
+
 uint8_t counter;
 int SDReady = 0;
 uint64_t SDWriteIndex = 0;
@@ -76,6 +79,9 @@ int32_t audioOutBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t audioInBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t ADC_values[NUM_ADC_CHANNELS * ADC_BUFFER_SIZE] __ATTR_RAM_D2;
 
+#define FILTER_ORDER 8
+#define ATODB_TABLE_SIZE 512
+#define ATODB_TABLE_SIZE_MINUS_ONE 511
 
 #define SMALL_MEM_SIZE 10000
 char smallMemory[SMALL_MEM_SIZE];
@@ -85,8 +91,14 @@ char mediumMemory[MEDIUM_MEM_SIZE] __ATTR_RAM_D1;
 
 tMempool mediumPool;
 
-tPluckDetectorInt myPluck[NUM_ADC_CHANNELS];
 
+float atodbTable[ATODB_TABLE_SIZE];
+tPluckDetectorInt myPluck[NUM_ADC_CHANNELS];
+tHighpass opticalHighpass[NUM_ADC_CHANNELS * FILTER_ORDER];
+tVZFilter opticalLowpass[NUM_ADC_CHANNELS];
+tSlide fastSlide[NUM_ADC_CHANNELS];
+tSlide slowSlide[NUM_ADC_CHANNELS];
+tThreshold threshold[NUM_ADC_CHANNELS];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -110,7 +122,7 @@ float randomNumber(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	  MPU_Conf();
+  MPU_Conf();
   /* USER CODE END 1 */
 
   /* Enable I-Cache---------------------------------------------------------*/
@@ -157,7 +169,13 @@ int main(void)
 	  SPI_TX[i] = counter++;
   }
 
-  HAL_SPI_TransmitReceive_DMA(&hspi2, SPI_TX, SPI_RX, 16);
+  for (int i = 0; i < 20; i++)
+  {
+	  SPI_PLUCK_TX[i] = 0;
+  }
+
+  HAL_SPI_Receive_DMA(&hspi2, SPI_RX, 16);
+
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
   HAL_Delay(10);
 
@@ -165,19 +183,33 @@ int main(void)
   HAL_Delay(10);
 
 
-  int transmit_status = HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)&audioOutBuffer[0], AUDIO_BUFFER_SIZE);
-  int receive_status = HAL_SAI_Receive_DMA(&hsai_BlockB1, (uint8_t *)&audioInBuffer[0], AUDIO_BUFFER_SIZE);
+  HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)&audioOutBuffer[0], AUDIO_BUFFER_SIZE);
+  HAL_SAI_Receive_DMA(&hsai_BlockB1, (uint8_t *)&audioInBuffer[0], AUDIO_BUFFER_SIZE);
 
  if(BSP_SD_IsDetected())
  {
-   FS_FileOperations();
+   //FS_FileOperations();
  }
-	LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
+LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
+for (int i = 0; i < NUM_ADC_CHANNELS; i++)
+{
+	tThreshold_init(&threshold[i],0.5f, 8.0f);
+	tSlide_init(&fastSlide[i],1.0f,1110.0f);
+	tSlide_init(&slowSlide[i],500.0f,1.0f);
+	tVZFilter_init(&opticalLowpass[i], Lowpass, 1000.0f, 0.6f);
+}
 
-	//tMempool_init (&mediumPool, mediumMemory, MEDIUM_MEM_SIZE);
+for (int i = 0; i < NUM_ADC_CHANNELS * FILTER_ORDER; i++)
+{
+	tHighpass_init(&opticalHighpass[i], 100.0f);
+
+}
+LEAF_generate_atodb(atodbTable, ATODB_TABLE_SIZE);
+
+
  for (int j = 0; j < NUM_ADC_CHANNELS; j++)
  {
-	 tPluckDetectorInt_init(&myPluck[j]);
+	 //tPluckDetectorInt_init(&myPluck[j]);
  }
 
  HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&ADC_values,NUM_ADC_CHANNELS * ADC_BUFFER_SIZE);
@@ -188,16 +220,16 @@ int main(void)
   while (1)
   {
 
-	  int tempIntGP = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13);
-	  if (tempIntGP)
-	  {
+	  //int tempIntGP = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13);
+	  //if (tempIntGP)
+	  //{
 		  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-	  }
-	  else
+	  //}
+	  //else
 
-	  {
+	  //{
 		  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
-	  }
+	 // }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -282,7 +314,7 @@ void SystemClock_Config(void)
   PeriphClkInitStruct.SdmmcClockSelection = RCC_SDMMCCLKSOURCE_PLL2;
   PeriphClkInitStruct.CkperClockSelection = RCC_CLKPSOURCE_HSI;
   PeriphClkInitStruct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
-  PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_PLL;
+  PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_PLL2;
   PeriphClkInitStruct.RngClockSelection = RCC_RNGCLKSOURCE_HSI48;
   PeriphClkInitStruct.I2c123ClockSelection = RCC_I2C123CLKSOURCE_D2PCLK1;
   PeriphClkInitStruct.AdcClockSelection = RCC_ADCCLKSOURCE_CLKP;
@@ -419,7 +451,7 @@ uint8_t comma[] = ", ";
 uint8_t newline[] = "\r\n";
 uint64_t memoryPointer = 0;
 char largeMemory[LARGE_MEM_SIZE] __ATTR_SDRAM;
-void writeToSD(int theIndex, int theNumber, int whichString)
+void writeToSD(int theIndex, int theNumber, int whichString, int didPlucked)
 {
 	if(finishSD == 1)
 	{
@@ -442,7 +474,8 @@ void writeToSD(int theIndex, int theNumber, int whichString)
 	}
 	else if (whichString == 0)
 	{
-		for (int i = 0; i < 10; i++)
+
+		/*(for (int i = 0; i < 10; i++)
 		{
 			tempText[i] = 0;
 		}
@@ -462,7 +495,7 @@ void writeToSD(int theIndex, int theNumber, int whichString)
 		memoryPointer++;
 
 
-
+*/
 		for (int i = 0; i < 10; i++)
 		{
 			tempText[i] = 0;
@@ -478,6 +511,26 @@ void writeToSD(int theIndex, int theNumber, int whichString)
 		}
 		largeMemory[memoryPointer] = 32;
 		memoryPointer++;
+
+		if (didPlucked > 0)
+		{
+			largeMemory[memoryPointer] = 49;
+
+		}
+		else
+		{
+			largeMemory[memoryPointer] = 48;
+		}
+		memoryPointer++;
+
+		largeMemory[memoryPointer] = 59;
+		memoryPointer++;
+		largeMemory[memoryPointer] = 13;
+		memoryPointer++;
+		largeMemory[memoryPointer] = 10;
+		memoryPointer++;
+
+		SDWriteIndex++;
 
 /*
 
@@ -531,7 +584,7 @@ void writeToSD(int theIndex, int theNumber, int whichString)
 		memoryPointer++;
 	*/
 	}
-	else if ((whichString > 0) && (whichString < 9))
+	else if ((whichString > 0) && (whichString < 3))
 	{
 		for (int i = 0; i < 30; i++)
 		{
@@ -539,6 +592,22 @@ void writeToSD(int theIndex, int theNumber, int whichString)
 		}
 		itoa(theNumber,tempText, 10);
 		for (int i = 0; i < 10; i++)
+		{
+			if (tempText[i] != 0)
+			{
+				largeMemory[memoryPointer] = tempText[i];
+				memoryPointer++;
+			}
+		}
+		largeMemory[memoryPointer] = 32;
+		memoryPointer++;
+
+		for (int i = 0; i < 10; i++)
+		{
+			tempText[i] = 0;
+		}
+		itoa(didPlucked,tempText, 10);
+		for (int i = 0; i < 5; i++)
 		{
 			if (tempText[i] != 0)
 			{
@@ -601,7 +670,7 @@ void writeToSD(int theIndex, int theNumber, int whichString)
 	}
 	else
 	{
-		for (int i = 0; i < 30; i++)
+		for (int i = 0; i < 10; i++)
 		{
 			tempText[i] = 0;
 		}
@@ -614,9 +683,23 @@ void writeToSD(int theIndex, int theNumber, int whichString)
 				memoryPointer++;
 			}
 		}
-
 		largeMemory[memoryPointer] = 32;
 		memoryPointer++;
+
+		for (int i = 0; i < 10; i++)
+		{
+			tempText[i] = 0;
+		}
+		itoa(didPlucked,tempText, 10);
+		for (int i = 0; i < 5; i++)
+		{
+			if (tempText[i] != 0)
+			{
+				largeMemory[memoryPointer] = tempText[i];
+				memoryPointer++;
+			}
+		}
+
 /*
 		for (int i = 0; i < 10; i++)
 		{
@@ -729,61 +812,204 @@ void MPU_Conf(void)
 
 	  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
 
-	 	  //D2 Domain�SRAM1
-	 	  MPU_InitStruct.BaseAddress = 0x38000000;
+	  //D3 Domain�SRAM
+	  MPU_InitStruct.BaseAddress = 0x38000000;
 
 
-	 	  MPU_InitStruct.Size = MPU_REGION_SIZE_64KB;
+	  MPU_InitStruct.Size = MPU_REGION_SIZE_64KB;
 
-	 	  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+	  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
 
-	 	  //AN4838
-	 	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
-	 	  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
-	 	  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
-	 	  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+	  //AN4838
+	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
+	  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
+	  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+	  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
 
-	 	  //Shared Device
-	 //	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-	 //	  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
-	 //	  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
-	 //	  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-
-
-	 	  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
-
-	 	  MPU_InitStruct.SubRegionDisable = 0x00;
+	  //Shared Device
+ //	  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+ //	  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+ //	  MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
+ //	  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
 
 
-	 	  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+	  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
+
+	  MPU_InitStruct.SubRegionDisable = 0x00;
 
 
-	 	  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+	  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+
+
+	  HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
 
 	  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
 
-uint16_t stringPositions[10];
-volatile int didPlucked[NUM_ADC_CHANNELS];
+int previousOutOfThresh[NUM_ADC_CHANNELS];
+int outOfThreshPositiveChange[NUM_ADC_CHANNELS];
+float status[NUM_ADC_CHANNELS];
+float currentMaximum[NUM_ADC_CHANNELS];
+int sahArmed[NUM_ADC_CHANNELS];
+int noteOnHappened[NUM_ADC_CHANNELS];
+int delayCounter[NUM_ADC_CHANNELS];
+int outOfThresh[NUM_ADC_CHANNELS];
+float attackDetect2(int whichString, int tempInt)
+{
+	float intoThresh = 0.0f;
+	float dbSmoothed = 0.0f;
+	float dbSmoothed2 = 0.0f;
+	float Dsmoothed = 0.0f;
+	float Dsmoothed2 = 0.0f;
+	float tempAbs = 0.0f;
 
+	float increment = 0.000755857898715f;
+	float output = 0.0f;
+	// turn it into floating point -1.0 to 1.0
+	float tempSamp = (((float)tempInt - TWO_TO_15) * INV_TWO_TO_15);
+
+	for (int k = 0; k < FILTER_ORDER; k++)
+	{
+		// a highpass filter, remove any slow moving signal (effectively centers the signal around zero and gets rid of the signal that isn't high frequency vibration) cutoff of 100Hz, // applied 8 times to get rid of a lot of low frequency bumbling around
+		tempSamp = tHighpass_tick(&opticalHighpass[whichString + (NUM_STRINGS * k)], tempSamp);
+	}
+
+	//lowpass filter to smooth it (cutoff at 1000 Hz)
+	tempSamp = tVZFilter_tickEfficient(&opticalLowpass[whichString], tempSamp) * 1.5f;
+
+	float input = tempSamp;
+	noteOnHappened[whichString] = 0;
+
+	//absolute value
+	tempAbs = fabsf(input);
+	//pastValues[whichString][whichVal%512] = tempAbs;
+
+	// smoothed is a linear smoother that doesn't smooth if the sample is going up but smoothes over 1110 samples going down
+	Dsmoothed = tSlide_tick(&fastSlide[whichString], tempAbs);
+
+	// smoothed2 takes smoothed value as input and smoothes over 500 samples if it's going up but doesn't smooth if it's going down
+	Dsmoothed2  = tSlide_tick(&slowSlide[whichString], Dsmoothed);
+
+	//convert linear amplitude to decibels (using a lookup table but it's just the standard atodb algorithm, clipped so it doesn't go below a lower threshold)
+	dbSmoothed = LEAF_clip(-60.0f, atodbTable[(uint32_t)(Dsmoothed * ATODB_TABLE_SIZE_MINUS_ONE)], 12.0f);
+	dbSmoothed2 = LEAF_clip(-60.0f, atodbTable[(uint32_t)(Dsmoothed2 * ATODB_TABLE_SIZE_MINUS_ONE)], 12.0f);
+	intoThresh = dbSmoothed - dbSmoothed2;
+
+	//threshold detector turns on (gives a 1) when signal goes above 0.5 and off (gives a 0) when signal goes below 8.0 (to give some hysteresis)
+	outOfThresh[whichString] = tThreshold_tick(&threshold[whichString], intoThresh);
+
+
+	if ((outOfThresh[whichString] > 0) && (previousOutOfThresh[whichString] == 0))
+	{
+		outOfThreshPositiveChange[whichString] = 1;
+	}
+
+	else
+	{
+		outOfThreshPositiveChange[whichString] = 0;
+	}
+
+	previousOutOfThresh[whichString] = outOfThresh[whichString];
+
+
+
+	//if you didn't get an attack within the last 1323 samples, and you got one now (because status counts down over 1323 samples)
+	if ((status[whichString] <= 0.0f) && (outOfThreshPositiveChange[whichString] == 1))
+	{
+		// this unfortunately makes it so we can't detect multiple plucks on different strings, but supresses the ghost plucks most of the time
+		// status is a countdown noting that we have detected the start of a pluck and we can't pluck again until status has reaches zero.
+		status[whichString] = 1.0f;
+		//status[1] = 1.0f;
+		//status[2] = 1.0f;
+		//status[3] = 1.0f;
+
+		currentMaximum[whichString] = 0.0f;
+
+		// sah is the "Sample and Hold "- we are "arming" the sample and hold to preserve the maximum value... just a flag to know we are waiting for the "maximum" info
+		sahArmed[whichString] = 1;
+
+		//delay counter waits 200 samples from beginning of pluck detection to try to ride to the peak
+		delayCounter[whichString] = 200;
+	}
+
+	else if (status[whichString] > 0.0f)
+	{
+		status[whichString] = status[whichString] - (increment); //count down over 1232 samples
+	}
+
+	//if we believe a pluck has started and we are now watching to find the peak, keep track of the maximum
+	if (tempAbs > currentMaximum[whichString])
+	{
+		currentMaximum[whichString] = tempAbs;
+	}
+
+	// count down until we think we've got the maximum for sure
+	if (delayCounter[whichString] > 0)
+	{
+		delayCounter[whichString]--;
+	}
+
+	//if you waited some number of samples to ride to the peak, then now make a noteOn event
+	if ((sahArmed[whichString] == 1) && (delayCounter[whichString] == 0))
+	{
+		//we got a note on - the amplitude is currentMaximum[whichString]
+		//tADSR_on(&envelope[0], currentMaximum[whichString]);
+		output = currentMaximum[whichString];
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+		sahArmed[whichString] = 0;
+	}
+
+	return output;
+}
+
+
+
+
+uint16_t stringPositions[NUM_ADC_CHANNELS];
+uint16_t stringTouchRH[NUM_ADC_CHANNELS];
+int didPlucked[NUM_ADC_CHANNELS];
+int stringSounding[NUM_ADC_CHANNELS];
+float ad2Pluck[NUM_ADC_CHANNELS];
 void ADC_Frame(int offset)
 {
 	//HAL_GPIO_TogglePin(GPIOG, GPIO_PIN_11);
-
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+	int changeHappened = 0;
 	//sampRecords[currentSamp] = frameCount;
 	//currentSamp++;
 	for (int i = offset; i < ADC_FRAME_SIZE + offset; i++)
 	{
-		for (int j = 0; j < NUM_ADC_CHANNELS; j++)
+		//for (int j = 0; j < NUM_ADC_CHANNELS; j++)
+		for (int j = 0; j < 10; j++)
 		{
 			int tempInt = ADC_values[(i*NUM_ADC_CHANNELS) + j];
 
-			didPlucked[j] = tPluckDetectorInt_tick(&myPluck[j], tempInt);
+			//didPlucked[j] = tPluckDetectorInt_tick(&myPluck[j], tempInt);
+			ad2Pluck[j] = attackDetect2(j, tempInt);
+			didPlucked[j] = (uint)LEAF_clip(0.0f,(ad2Pluck[j] * 65535.0f), 65535.0f);
 			if (didPlucked[j] > 0)
 			{
+				SPI_PLUCK_TX[(j * 2)] = (didPlucked[j] >> 8);
+				SPI_PLUCK_TX[(j * 2) + 1] = (didPlucked[j] & 0xff);
 				//a pluck happened! send a message over SPI to the other ICs
 				//TODO: a pluck message
+				if (j == 0)
+				{
+
+					HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+				}
+				//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
+				/*
+				SPI_PLUCK_TX[0] = j;
+				SPI_PLUCK_TX[1] = (uint8_t) (didPlucked[j] >> 8); //low byte
+				SPI_PLUCK_TX[2] = (uint8_t) (didPlucked[j] & 0xff); //low byte
+				SPI_PLUCK_TX[3] = 0;
+				*/
+				changeHappened = 1;
+				stringSounding[j] = 1;
+
+				//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 4);
 			}
 			//float tempSamp = (((float)tempInt - INV_TWO_TO_15) * INV_TWO_TO_15);
 
@@ -793,14 +1019,40 @@ void ADC_Frame(int offset)
 			//	stringPositions[j] = 0;
 			//}
 			//stringTouchLH[j] = (SPI_RX[8] >> j) & 1;
-			//stringTouchRH[j] = (SPI_RX[8] >> (j + 4)) & 1;
+			if (j < 8)
+			{
+				stringTouchRH[j] = (SPI_RX[8] >> j) & 1;
+			}
+			else
+			{
+				stringTouchRH[j] = (SPI_RX[9] >> (j-8)) & 1;
+			}
+			if ((stringTouchRH[j]) && (stringSounding[j]))
+			{
+				//a note-off happened! send a message over SPI to the other ICs
+				/*
+				SPI_PLUCK_TX[0] = j;
+				SPI_PLUCK_TX[1] = 0;
+				SPI_PLUCK_TX[2] = 0;
+				SPI_PLUCK_TX[3] = 0;
+				*/
+				SPI_PLUCK_TX[(j * 2)] = 0;
+				SPI_PLUCK_TX[(j * 2) + 1] = 0;
+				if (j == 0)
+				{
+					HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
 
+				}
+				//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
+				changeHappened = 1;
+				stringSounding[j] = 0;
+			}
 			//tempSamp = tHighpass_tick(&opticalHighpass[j+NUM_STRINGS], tHighpass_tick(&opticalHighpass[j], tempSamp));
 			//itoa(SDWriteIndex, wtext, 4);
-			/*
+/*
 			if (SDReady)
 			{
-				writeToSD(SDWriteIndex, tempInt, j);
+				//writeToSD(SDWriteIndex, tempInt, j, stringSounding[j]);
 
 				if (memoryPointer >= (LARGE_MEM_SIZE - 3000))
 				{
@@ -810,29 +1062,15 @@ void ADC_Frame(int offset)
 					//HAL_SAI_DMAStop(&hsai_BlockB1);
 				}
 			}
-			*/
-/*			}
-			for (int k = 0; k < FILTER_ORDER; k++)
-			{
-				//tempSamp = tHighpass_tick(&opticalHighpass[j+ (NUM_STRINGS * k)], tVZFilter_tick(&opticalLowpass[j + (NUM_STRINGS * k)], tempSamp));
-				tempSamp = tHighpass_tick(&opticalHighpass[j+ (NUM_STRINGS * k)], tempSamp);
-				//
-			}
-			tempSamp = tVZFilter_tick(&opticalLowpass[j], tempSamp) * 1.5f;
-
-			attackDetect2(j, tempSamp);
-			processString(j, tempSamp);
-			*/
+*/
 		}
-		//whichVal++;
 
 	}
-	//if (whichVal > 3000)
-	//{
-	//	waitTimeOver = 1;
-	//}
-	//ADC_Ready = 1;
-
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+	if (changeHappened)
+	{
+		HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
+	}
 }
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
@@ -851,7 +1089,10 @@ void HAL_ADC_Error(ADC_HandleTypeDef *hadc)
 
 }
 
-
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+	//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+}
 
 /* USER CODE END 4 */
 

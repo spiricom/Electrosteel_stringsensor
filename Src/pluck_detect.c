@@ -17,8 +17,8 @@ void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const pd, tMempool* 
 
 	//INITIALIZE VARIABLES
 	p->current_dir = 1;
-	p->envelope_min = 65535;//maybe could be 32 bit?
-	p->envelope_max = 0;//maybe could be 32 bit?
+	p->envelope_min = 0;//maybe could be 32 bit?
+	p->envelope_max = 65535;//maybe could be 32 bit?
 	p->prior_smoothed = 0;
 	p->prior_super_smoothed = 0;
 	p->prior_super_smoothed_dir = 1;
@@ -39,6 +39,7 @@ void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const pd, tMempool* 
 	p->prior_detect_3_index = 0;
 	p->prior_detect_3_value = 0;
 	p->midpoint_estimate = 48552;
+	p->is_midpoint_calculated = 0;
 	p->delay_since_last_detect = 0;
 	p->dir_count = 0;
 	p->ready_for_pluck = 1;
@@ -54,24 +55,24 @@ void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const pd, tMempool* 
 
 	p->smoothing_window = 16;
     p->super_smoothing_window = 128;
-    p->envelope_window = 512;
+    p->minmax_window = 16;
+
 
     tRingBufferInt_initToPool(&p->smoothed_array, p->smoothing_window, mp);
 
 	tRingBufferInt_initToPool(&p->super_smoothed_array, p->super_smoothing_window, mp);
 
-	tRingBufferInt_initToPool(&p->last400_smoothed, p->envelope_window, mp); // making this 512 for now to use ringbuffer object
+	tRingBufferInt_initToPool(&p->minmax_samples, p->minmax_window, mp);
 
-    p->max_samples_still_same_pluck = 400;
+	p->min_recent_value = 0;
+	p->max_recent_value = 0;
+    p->max_samples_still_same_pluck = 1; //400
     p->max_var_diff_width = 10000;
     p->max_width_is_resonating = 1000;
     p->max_ratio_value_diffs = 0.2f;
-    p->min_value_spread = 500;
-    p->min_same_direction_steps = 150;
+    p->min_value_spread = 10; //500
+    p->min_same_direction_steps = 3; //150
 
-    p->myMin = 65535;
-    p->myMax = 0;
-    //AVL_memory_offset = (int)&AVL_array;
 }
 void    tPluckDetectorInt_free          (tPluckDetectorInt* const pd)
 {
@@ -79,10 +80,11 @@ void    tPluckDetectorInt_free          (tPluckDetectorInt* const pd)
 
     tRingBufferInt_free(&p->smoothed_array);
 	tRingBufferInt_free(&p->super_smoothed_array);
-	tRingBufferInt_free(&p->last400_smoothed);
+	tRingBufferInt_free(&p->minmax_samples);
 
     mpool_free((char*)p, p->mempool);
 }
+
 
 int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 {
@@ -97,7 +99,8 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 	int oldSmoothed = tRingBufferInt_getOldest(&p->smoothed_array);
 	p->smoothedAccum -= oldSmoothed;
 	p->smoothedAccum += input;
-	p->smoothed = p->smoothedAccum >> 4; // divide by 16
+	p->smoothed = p->smoothedAccum / p->smoothing_window; // divide by 16
+
 
 	//update super_smoothed for current sample
 	tRingBufferInt_push(&p->super_smoothed_array, p->smoothed); //is this right? should be smoothed and not input, correct?
@@ -106,82 +109,35 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 	int oldSuperSmoothed = tRingBufferInt_getOldest(&p->super_smoothed_array);
 	p->super_smoothedAccum -= oldSuperSmoothed;
 	p->super_smoothedAccum += p->smoothed;
-	p->super_smoothed = p->super_smoothedAccum >> 7; // divide by 128
+	p->super_smoothed = p->super_smoothedAccum / p->super_smoothing_window; // divide by 128
 
 
-	//update last400_smoothed
-	int oldValue = tRingBufferInt_getOldest(&p->last400_smoothed);
-
-	///here's where we do the AVL tree implementation:
-	//1. create a tree
-	//3. delete and insert to move window
-	//2. get maximum and minimum from BST
-	tRingBufferInt_push(&p->last400_smoothed, p->smoothed);
-/*
-	root = deleteNode(root, oldValue);
-	root = insert(root, smoothed);
-
-	myMin = minValueKey(root);
-	myMax = maxValueKey(root);
-*/
-
-
-	if ((oldValue >= p->myMax) || (oldValue <= p->myMin))
+	//### Collect a new data point every MINMAX_INCREMENTS_BETWEEN_SAMPLES steps,
+	//### and collect the current min and max values within this loop since they won't change until the next update
+	if ((p->Pindex % 32) == 0) //maybe have this update as a separate function to avoid the branch every sample?
 	{
-		tRingBufferInt_push(&p->last400_smoothed, p->smoothed);
-		p->myMax = 0;
-		p->myMin = 65535;
-		for (int i = 0; i < 512; i++)
-		{
+			tRingBufferInt_push(&p->minmax_samples, p->smoothed);
+			int tempMin1 = 65535;
+			int tempMax1 = 0;
 
-			int tempVal = tRingBufferInt_get(&p->last400_smoothed, i);
-			if (tempVal < p->myMin)
+			for (int i = 0; i < p->minmax_window; i++)
 			{
-				p->myMin = tempVal;
+				int tempSample = tRingBufferInt_get(&p->minmax_samples, i);
+				if (tempSample > tempMax1)
+				{
+					tempMax1 = tempSample;
+				}
+				if (tempSample < tempMin1)
+				{
+					tempMin1 = tempSample;
+				}
+
 			}
-			if (tempVal > p->myMax)
-			{
-				p->myMax = tempVal;
-			}
-		}
-
-	}
-	else
-	{
-		tRingBufferInt_push(&p->last400_smoothed, p->smoothed);
-		if (p->smoothed > p->myMax)
-		{
-			p->myMax = p->smoothed;
-		}
-		if (p->smoothed < p->myMin)
-		{
-			p->myMin = p->smoothed;
-		}
+			p->max_recent_value = tempMax1;
+			p->min_recent_value = tempMin1;
 	}
 
-
-	//CHECK IF WE FALL OUTSIDE THE CURRENT "ENVELOPE"
-	//TODO: need to get the max and min of that last400 ring buffer. For now I'm doing very slow naive version.
-
-
-
-/*
-	for (int i = 0; i < 512; i++)
-	{
-		int tempVal = tRingBufferInt_get(&last400_smoothed, i);
-		if (tempVal < myMin)
-		{
-			myMin = tempVal;
-		}
-		if (tempVal > myMax)
-		{
-			myMax = tempVal;
-		}
-	}
-*/
-	int outside_envelope = ((p->myMin < p->envelope_min) || (p->myMax > p->envelope_max));
-
-
+	int outside_envelope = (( p->min_recent_value < p->envelope_min) || (p->max_recent_value > p->envelope_max ));   //# Logical: TRUE/FALSE
 
 	//COLLECT THE DIRECTION OF MOVEMENT FOR SUPER-SMOOTHED SEQUENCE (FOR DETECTING IF READY FOR NEXT PLUCK)
 	//Here we're basically counting how many times we've taken consecutive steps in the same direction
@@ -205,7 +161,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 
 	if (p->ready_for_pluck==0)
 	{
-		if ((p->dir_count > p->min_same_direction_steps) && (outside_envelope==1))
+		if ((p->dir_count > p->min_same_direction_steps) && (outside_envelope == 1))
 		{
 			p->ready_for_pluck = 1;
 		}
@@ -224,20 +180,20 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 	// 		(1) Several consistent steps all up (or all down) in sequence, and then suddenly a change
 	// 		(2) There is enough overall vertical movement in the recent samples
 
-	int tempMin = 1;
-	int tempMax = -1;
+	int tempMin2 = 1;
+	int tempMax2 = -1;
 	for (int i = 0; i < 3; i++)
 	{
-		if (p->prior_dirs[i] < tempMin)
+		if (p->prior_dirs[i] < tempMin2)
 		{
-			tempMin = p->prior_dirs[i];
+			tempMin2 = p->prior_dirs[i];
 		}
-		if (p->prior_dirs[i] > tempMax)
+		if (p->prior_dirs[i] > tempMax2)
 		{
-			tempMax = p->prior_dirs[i];
+			tempMax2 = p->prior_dirs[i];
 		}
 	}
-	if (((p->current_dir == 1) && (tempMax == -1)) ||((p->current_dir == -1) && (tempMin == 1)))
+	if (((p->current_dir == 1) && (tempMax2 == -1)) || ((p->current_dir == -1) && (tempMin2 == 1)))
 	{
 		//UPDATE THE DIRECTION THAT WE'll BE COMPARING AGAINST NEXT TIME
 		p->current_dir = -p->current_dir;
@@ -283,11 +239,13 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 			//### 	Eg. if prior_changepoints_value = [NULL,NULL,100,200,300] and midpoint_estimate = 150
 			//###     	then dirs_from_midpoint = [NULL,NULL,-1,1,1]
 	    	int dirs_from_midpoint[5];
-	    	for (int i = 0; i < 5; i++)
+	    	if (p->is_midpoint_calculated == 1)
 	    	{
-	    		dirs_from_midpoint[i] = LEAF_sign(p->prior_changepoints_value[i] - p->midpoint_estimate);
+	    		for (int i = 0; i < 5; i++)
+	    		{
+	    			dirs_from_midpoint[i] = LEAF_sign(p->prior_changepoints_value[i] - p->midpoint_estimate);
+	    		}
 	    	}
-
 			//### ASSEMBLE STATISTICS RELATED TO A 3-POINT PATTERN (UP/DOWN/UP or vice versa)
 	    	int tempZeroCheck = abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[3]);
 	    	if (tempZeroCheck == 0)
@@ -296,18 +254,19 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 	    	}
 			float ratio_value_diffs_1 = ((float)abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[2])) / (float)tempZeroCheck;
 			int spread_value_1 = abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[3]);
-			int falls_about_midpoint_1 = ((dirs_from_midpoint[2] == dirs_from_midpoint[4]) && (dirs_from_midpoint[3] != dirs_from_midpoint[4]));
-
-
-	    	tempZeroCheck = abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[3]);
-	    	if (tempZeroCheck == 0)
-	    	{
-	    		tempZeroCheck = 1; //prevent divide by zero
-	    	}
+			int falls_about_midpoint_1 = 1;
+			if (p->is_midpoint_calculated == 1) //if you've got a valid midpoint, then calculate this
+			{
+				falls_about_midpoint_1 = ((dirs_from_midpoint[2] == dirs_from_midpoint[4]) && (dirs_from_midpoint[3] != dirs_from_midpoint[4]));
+			}
 
 			float ratio_value_diffs_2 = ((float)abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[0])) / (float)tempZeroCheck;
 			int spread_value_2 = abs(p->prior_changepoints_value[0] - p->prior_changepoints_value[1]);
-			int falls_about_midpoint_2 = ( (dirs_from_midpoint[0] == dirs_from_midpoint[4]) && (dirs_from_midpoint[0] != dirs_from_midpoint[1]) && (dirs_from_midpoint[0] != dirs_from_midpoint[3]));
+			int falls_about_midpoint_2 = 1;
+			if (p->is_midpoint_calculated == 1) //if you've got a valid midpoint, then calculate this
+			{
+				falls_about_midpoint_2 = ( (dirs_from_midpoint[0] == dirs_from_midpoint[4]) && (dirs_from_midpoint[0] != dirs_from_midpoint[1]) && (dirs_from_midpoint[0] != dirs_from_midpoint[3]));
+			}
 
 
 
@@ -329,61 +288,56 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 			int tempMean = (width_differences[2] + width_differences[3]) / 2; //divide by 2
 			int tempVar1 = width_differences[2] - tempMean;
 			int tempVar2 = width_differences[3] - tempMean;
-			int tempVariance = ((tempVar1 * tempVar1) + (tempVar2 * tempVar2)) / 2; // divide by 2;
+			int tempVariance = ((tempVar1 * tempVar1) + (tempVar2 * tempVar2));
 
-			tempMax = width_differences[2];
-			if (width_differences[3] > tempMax)
+			int tempMax3 = width_differences[2];
+			if (width_differences[3] > tempMax3)
 			{
-				tempMax = width_differences[3];
+				tempMax3 = width_differences[3];
 			}
 
-			int firstTest = (ratio_value_diffs_1 < p->max_ratio_value_diffs) && (spread_value_1 > p->min_value_spread) && (tempVariance < p->max_var_diff_width) && (tempMax < p->max_width_is_resonating);// && (falls_about_midpoint_1==1);
+			int firstTest = (ratio_value_diffs_1 < p->max_ratio_value_diffs) && (spread_value_1 > p->min_value_spread) && (tempVariance < p->max_var_diff_width) && (tempMax3 < p->max_width_is_resonating) && (falls_about_midpoint_1 == 1);
 
 
 			//### 5-POINT PATTERN
 
 			//compute var of width differences using all elements
 			//first take the mean
-			tempMean = (width_differences[0] + width_differences[1] + width_differences[2] + width_differences[3] + width_differences[4]) / 5;
+			tempMean = (width_differences[0] + width_differences[1] + width_differences[2] + width_differences[3]) / 4;
 			tempVar1 = width_differences[0] - tempMean;
 			tempVar2 = width_differences[1] - tempMean;
 			int tempVar3 = width_differences[2] - tempMean;
 			int tempVar4 = width_differences[3] - tempMean;
-			int tempVar5 = width_differences[4] - tempMean;
-			tempVariance = ((tempVar1 * tempVar1) + (tempVar2 * tempVar2) + (tempVar3 * tempVar3) + (tempVar4 * tempVar4) + (tempVar5 * tempVar5)) / 5; // divide by 5;
+			tempVariance = ((tempVar1 * tempVar1) + (tempVar2 * tempVar2) + (tempVar3 * tempVar3) + (tempVar4 * tempVar4)) / 3; // divide by 3;
 
-			tempMax = width_differences[0];
-			for (int i = 1; i < 5; +i++)
-			if (width_differences[i] > tempMax)
+			tempMax3 = width_differences[0];
+			for (int i = 1; i < 4; +i++)
+			if (width_differences[i] > tempMax3)
 			{
-				tempMax = width_differences[i];
+				tempMax3 = width_differences[i];
 			}
 
-			int secondTest = (ratio_value_diffs_2 < p->max_ratio_value_diffs) && (spread_value_2 > p->min_value_spread) && (tempVariance < p->max_var_diff_width) && (tempMax < p->max_width_is_resonating);// && (falls_about_midpoint_2==1);
+			int secondTest = (ratio_value_diffs_2 < p->max_ratio_value_diffs) && (spread_value_2 > p->min_value_spread) && (tempVariance < p->max_var_diff_width) && (tempMax3 < p->max_width_is_resonating) && (falls_about_midpoint_2 == 1);
 
 			if (firstTest || secondTest)
 			{
 				//### UPDATE THE ENVELOPE
-				p->envelope_min = p->myMin;
-				p->envelope_max = p->myMax;
-				int is_pluck;
+				p->envelope_min = p->min_recent_value;
+				p->envelope_max = p->max_recent_value;
+				int is_pluck = 0;
 
 				//### CHECK IF THIS IS A NEW PLUCK (NOT JUST FURTHER DETECTION OF RESONANCE ON EXISTING PLUCK)
 				//### 	If it is an actual pluck, then also collect its strength
 				if (p->ready_for_pluck==1)
 				{
 					is_pluck = (p->delay_since_last_detect > p->max_samples_still_same_pluck);
-					if (is_pluck==1)
+					if (is_pluck == 1)
 					{
 						p->pluck_strength = p->envelope_max - p->envelope_min;
 						pluckHappened = p->pluck_strength;
 						//adding this - not sure if it's what Angie meant:
 						p->ready_for_pluck = 0;
 					}
-				}
-				else
-				{
-					is_pluck = 0;
 				}
 
 				//### IF WE HAVE HAD AT LEAST THREE DETECTIONS OF RESONANCE WITHIN THE SAME PLUCK'S SIGNAL
@@ -393,7 +347,8 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 					if ((p->Pindex - p->prior_detect_1_index < p->max_samples_still_same_pluck) && (p->prior_detect_1_index - p->prior_detect_2_index < p->max_samples_still_same_pluck) && (p->prior_detect_2_index - p->prior_detect_3_index < p->max_samples_still_same_pluck))
 					{
 						//### Note: This can be rounded to the nearest int, but doesn't need to be
-						p->midpoint_estimate = (p->myMax + p->myMin) >> 1;
+						p->midpoint_estimate = (p->max_recent_value + p->min_recent_value) / 2;
+						p->is_midpoint_calculated = 1;
 					}
 				}
 
@@ -417,6 +372,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 	p->delay_since_last_detect = p->delay_since_last_detect + 1;
 
 	//### INCREMENT INDEX COUNTER THAT TRACKS HOW MANY SAMPLES WE'VE SEEN SO FAR
+	//still need to figure out how to manage integer rollover.
 	p->Pindex = p->Pindex + 1;
 	if (p->Pindex == 0)
 	{
