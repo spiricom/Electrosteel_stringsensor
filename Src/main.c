@@ -17,19 +17,15 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
-
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
-#include "fatfs.h"
 #include "i2c.h"
 #include "rng.h"
 #include "sai.h"
-#include "sdmmc.h"
 #include "spi.h"
 #include "gpio.h"
-#include "fmc.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -65,15 +61,7 @@ uint8_t SPI_PLUCK_TX[20] __ATTR_RAM_D2;
 
 
 uint8_t counter;
-int SDReady = 0;
-uint64_t SDWriteIndex = 0;
-FRESULT res;
-  FATFS MMCFatFs;
-  FIL myFile;
-  FATFS fs;
-  DSTATUS statusH;
 
-int finishSD = 0;
 
 int32_t audioOutBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t audioInBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
@@ -89,8 +77,8 @@ char mediumMemory[MEDIUM_MEM_SIZE] __ATTR_RAM_D1;
 
 tMempool mediumPool;
 
-uint16_t largeMemory[LARGE_MEM_SIZE / sizeof(uint16_t)] __ATTR_SDRAM;
-uint memoryPointer = 0;
+//uint16_t largeMemory[LARGE_MEM_SIZE / sizeof(uint16_t)] __ATTR_SDRAM;
+//uint memoryPointer = 0;
 
 float atodbTable[ATODB_TABLE_SIZE];
 tPluckDetectorInt myPluck[NUM_ADC_CHANNELS];
@@ -150,9 +138,6 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_FMC_Init();
-  MX_SDMMC1_SD_Init();
-  MX_FATFS_Init();
   MX_SAI1_Init();
   MX_RNG_Init();
   MX_SPI2_Init();
@@ -179,17 +164,13 @@ int main(void)
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
   HAL_Delay(10);
 
-  SDRAM_Initialization_sequence();
-  HAL_Delay(10);
+
 
 
   HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)&audioOutBuffer[0], AUDIO_BUFFER_SIZE);
   HAL_SAI_Receive_DMA(&hsai_BlockB1, (uint8_t *)&audioInBuffer[0], AUDIO_BUFFER_SIZE);
 
- if(BSP_SD_IsDetected())
- {
-   FS_FileOperations();
- }
+
 LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
 
 
@@ -249,18 +230,19 @@ void SystemClock_Config(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
-  /** Supply configuration update enable 
+  /** Supply configuration update enable
   */
   HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
-  /** Configure the main internal regulator output voltage 
+  /** Configure the main internal regulator output voltage
   */
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
-  /** Macro to configure the PLL clock source 
+  /** Macro to configure the PLL clock source
   */
   __HAL_RCC_PLL_PLLSOURCE_CONFIG(RCC_PLLSOURCE_HSE);
-  /** Initializes the CPU, AHB and APB busses clocks 
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48|RCC_OSCILLATORTYPE_HSI
                               |RCC_OSCILLATORTYPE_HSE;
@@ -282,7 +264,7 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  /** Initializes the CPU, AHB and APB busses clocks 
+  /** Initializes the CPU, AHB and APB buses clocks
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
@@ -301,8 +283,7 @@ void SystemClock_Config(void)
   }
   PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RNG|RCC_PERIPHCLK_SPI1
                               |RCC_PERIPHCLK_SPI2|RCC_PERIPHCLK_SAI1
-                              |RCC_PERIPHCLK_SDMMC|RCC_PERIPHCLK_I2C2
-                              |RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_FMC
+                              |RCC_PERIPHCLK_I2C2|RCC_PERIPHCLK_ADC
                               |RCC_PERIPHCLK_CKPER;
   PeriphClkInitStruct.PLL2.PLL2M = 25;
   PeriphClkInitStruct.PLL2.PLL2N = 344;
@@ -312,8 +293,6 @@ void SystemClock_Config(void)
   PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_0;
   PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
   PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
-  PeriphClkInitStruct.FmcClockSelection = RCC_FMCCLKSOURCE_D1HCLK;
-  PeriphClkInitStruct.SdmmcClockSelection = RCC_SDMMCCLKSOURCE_PLL2;
   PeriphClkInitStruct.CkperClockSelection = RCC_CLKPSOURCE_HSI;
   PeriphClkInitStruct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
   PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_PLL2;
@@ -338,496 +317,7 @@ float randomNumber(void) {
 }
 
 
-#define SDRAM_TIMEOUT ((uint32_t)0xFFFF)
 
-#define SDRAM_MODEREG_BURST_LENGTH_1             ((uint16_t)0x0000)
-#define SDRAM_MODEREG_BURST_LENGTH_2             ((uint16_t)0x0001)
-#define SDRAM_MODEREG_BURST_LENGTH_4             ((uint16_t)0x0002)
-#define SDRAM_MODEREG_BURST_LENGTH_8             ((uint16_t)0x0003)
-#define SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL      ((uint16_t)0x0000)
-#define SDRAM_MODEREG_BURST_TYPE_INTERLEAVED     ((uint16_t)0x0008)
-#define SDRAM_MODEREG_CAS_LATENCY_2              ((uint16_t)0x0020)
-#define SDRAM_MODEREG_CAS_LATENCY_3              ((uint16_t)0x0030)
-#define SDRAM_MODEREG_OPERATING_MODE_STANDARD    ((uint16_t)0x0000)
-#define SDRAM_MODEREG_WRITEBURST_MODE_PROGRAMMED ((uint16_t)0x0000)
-#define SDRAM_MODEREG_WRITEBURST_MODE_SINGLE     ((uint16_t)0x0200)
-
-//#define SDRAM_REFRESH_COUNT                   	 ((uint32_t)956)// 7.9us in cycles of 8.333333ns + 20 cycles as recommended by datasheet page 866/3289 for STM32H743
-#define SDRAM_REFRESH_COUNT                   	 ((uint32_t)0x0569)// 7.9us in cycles of 8.333333ns + 20 cycles as recommended by datasheet page 866/3289 for STM32H743
-void SDRAM_Initialization_sequence(void)
-{
-    __IO uint32_t tmpmrd = 0;
-    FMC_SDRAM_CommandTypeDef Command;
-    /* Step 1: Configure a clock configuration enable command */
-    Command.CommandMode = FMC_SDRAM_CMD_CLK_ENABLE;
-    Command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK1;
-    Command.AutoRefreshNumber = 1;
-    Command.ModeRegisterDefinition = 0;
-
-    /* Send the command */
-    HAL_SDRAM_SendCommand(&hsdram1, &Command, SDRAM_TIMEOUT);
-
-    /* Step 2: Insert 100 us minimum delay */
-    /* Inserted delay is equal to 1 ms due to systick time base unit (ms) */
-    HAL_Delay(1);
-
-    /* Step 3: Configure a PALL (precharge all) command */
-    Command.CommandMode = FMC_SDRAM_CMD_PALL;
-    Command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK1;
-    Command.AutoRefreshNumber = 1;
-    Command.ModeRegisterDefinition = 0;
-
-    /* Send the command */
-    HAL_SDRAM_SendCommand(&hsdram1, &Command, SDRAM_TIMEOUT);
-
-    /* Step 5: Program the external memory mode register */
-    tmpmrd = (uint32_t)SDRAM_MODEREG_BURST_LENGTH_4 | SDRAM_MODEREG_BURST_TYPE_SEQUENTIAL
-        | SDRAM_MODEREG_CAS_LATENCY_2 | SDRAM_MODEREG_OPERATING_MODE_STANDARD
-        | SDRAM_MODEREG_WRITEBURST_MODE_SINGLE;
-
-    Command.CommandMode = FMC_SDRAM_CMD_LOAD_MODE;
-    Command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK1;
-    Command.AutoRefreshNumber = 1;
-    Command.ModeRegisterDefinition = tmpmrd;
-
-    /* Send the command */
-    HAL_SDRAM_SendCommand(&hsdram1, &Command, SDRAM_TIMEOUT);
-
-    /* Step 4: Configure the 1st Auto Refresh command */
-    Command.CommandMode = FMC_SDRAM_CMD_AUTOREFRESH_MODE;
-    Command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK1;
-    Command.AutoRefreshNumber = 8;
-    Command.ModeRegisterDefinition = 0;
-
-    /* Send the command */
-    HAL_SDRAM_SendCommand(&hsdram1, &Command, SDRAM_TIMEOUT);
-
-    /* Step 2: Insert 100 us minimum delay */
-    /* Inserted delay is equal to 1 ms due to systick time base unit (ms) */
-    HAL_Delay(1);
-
-    /* Step 5: Configure the 2nd Auto Refresh command */
-    Command.CommandMode = FMC_SDRAM_CMD_AUTOREFRESH_MODE;
-    Command.CommandTarget = FMC_SDRAM_CMD_TARGET_BANK1;
-    Command.AutoRefreshNumber = 8;
-    Command.ModeRegisterDefinition = 0;
-
-    /* Send the command */
-    HAL_SDRAM_SendCommand(&hsdram1, &Command, SDRAM_TIMEOUT);
-
-    /* Step 6: Set the refresh rate counter */
-    /* Set the device refresh rate */
-    HAL_SDRAM_ProgramRefreshRate(&hsdram1, SDRAM_REFRESH_COUNT);
-}
-
-#ifdef SDRECORD
-
-volatile FRESULT res2;
-uint8_t rtext[100];                                   /* File read buffer */
-uint32_t byteswritten, bytesread;                     /* File write/read counts */
-uint8_t wtext[220000] __ATTR_RAM_D1; /* File write buffer */
-uint32_t wtextPointer = 0;
-char tempText[30];
-int testNumber = 55559;
-char filename[40];
-char fileExt[] = ".txt";
-static void FS_FileOperations(void)
-{
-  uint theNumber = randomNumber() * 65535;
-  itoa(theNumber,tempText, 10);
-  strncat(filename, tempText, sizeof(tempText));
-  strncat(filename, fileExt, sizeof(fileExt));
-  statusH = disk_initialize(0);
-  HAL_Delay(10);
-  /* Register the file system object to the FatFs module */
-  if(f_mount(&MMCFatFs, (TCHAR const*)SDPath, 1) == FR_OK)
-  {
-	  {
-		  if(f_open(&myFile, filename, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK)
-		  {
-			SDReady = 1;
-		  }
-	  }
-  }
-}
-
-uint8_t comma[] = ", ";
-uint8_t newline[] = "\r\n";
-
-void writeSD(void)
-{
-	if (SDReady == 1)
-	{
-		int maxPointer = memoryPointer;
-		__disable_irq();
-		for (int j = 0; j < maxPointer; j++)
-		{
-			//get number
-			int theNumber = (int)largeMemory[j];
-			//clear temp text
-			for (int i = 0; i < 10; i++)
-			{
-				tempText[i] = 0;
-			}
-			itoa(theNumber,tempText, 10);
-
-			//if you don't have room in the temp buffer, write it to the SD card
-			if (wtextPointer > (220000 - 20))
-			{
-				//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-
-				 f_write(&myFile, wtext, wtextPointer, (void *)&byteswritten);
-				 wtextPointer = 0;
-
-			}
-			for (int i = 0; i < 5; i++)
-			{
-				if (tempText[i] != 0)
-				{
-					wtext[wtextPointer] = tempText[i];
-					wtextPointer++;
-				}
-			}
-			if (((j + 1) % 50) == 0)
-			{
-
-				wtext[wtextPointer] = 59;
-				wtextPointer++;
-				wtext[wtextPointer] = 13;
-				wtextPointer++;
-				wtext[wtextPointer] = 10;
-
-			}
-			else
-			{
-				wtext[wtextPointer] = 32;
-			}
-
-			wtextPointer++;
-
-		}
-		res2 = f_close(&myFile);
-
-		 HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
-		 if (res2 == FR_OK)
-		 {
-			 HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-		 }
-		__enable_irq();
-	}
-}
-
-
-
-void writeToSD(int theIndex, int theNumber, int whichString, int didPlucked)
-{
-	if(finishSD == 1)
-	{
-
-		SDReady = 0;
-		largeMemory[memoryPointer] = 0;
-		memoryPointer++;
-
-		//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-		__disable_irq();
-		 f_write(&myFile, largeMemory, memoryPointer, (void *)&byteswritten);
-		 res2 = f_close(&myFile);
-		 __enable_irq();
-		 HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
-		 if (res2 == FR_OK)
-		 {
-			 HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-		 }
-
-	}
-	else if (whichString == 0)
-	{
-
-		/*(for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(theIndex,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-
-		largeMemory[memoryPointer] = 44;
-		memoryPointer++;
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-
-*/
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(theNumber,tempText, 10);
-		for (int i = 0; i < 5; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		if (didPlucked > 0)
-		{
-			largeMemory[memoryPointer] = 49;
-
-		}
-		else
-		{
-			largeMemory[memoryPointer] = 48;
-		}
-		memoryPointer++;
-
-		largeMemory[memoryPointer] = 59;
-		memoryPointer++;
-		largeMemory[memoryPointer] = 13;
-		memoryPointer++;
-		largeMemory[memoryPointer] = 10;
-		memoryPointer++;
-
-		SDWriteIndex++;
-
-/*
-
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(myPos,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-
-		itoa(lh,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		for (int i = 0; i < 30; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(rh,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-	*/
-	}
-	else if ((whichString > 0) && (whichString < 3))
-	{
-		for (int i = 0; i < 30; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(theNumber,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(didPlucked,tempText, 10);
-		for (int i = 0; i < 5; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-/*
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(myPos,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(lh,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		for (int i = 0; i < 30; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(rh,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-		*/
-	}
-	else
-	{
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(theNumber,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(didPlucked,tempText, 10);
-		for (int i = 0; i < 5; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-
-/*
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(myPos,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		for (int i = 0; i < 10; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(lh,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-
-		for (int i = 0; i < 30; i++)
-		{
-			tempText[i] = 0;
-		}
-		itoa(rh,tempText, 10);
-		for (int i = 0; i < 10; i++)
-		{
-			if (tempText[i] != 0)
-			{
-				largeMemory[memoryPointer] = tempText[i];
-				memoryPointer++;
-			}
-		}
-		largeMemory[memoryPointer] = 32;
-		memoryPointer++;
-		*/
-		largeMemory[memoryPointer] = 59;
-		memoryPointer++;
-		largeMemory[memoryPointer] = 13;
-		memoryPointer++;
-		largeMemory[memoryPointer] = 10;
-		memoryPointer++;
-
-		SDWriteIndex++;
-	}
-}
-#endif
 
 void MPU_Conf(void)
 {
@@ -1195,7 +685,7 @@ void Error_Handler(void)
   * @retval None
   */
 void assert_failed(uint8_t *file, uint32_t line)
-{ 
+{
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
