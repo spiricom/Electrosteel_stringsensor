@@ -59,7 +59,20 @@
 		int minmax_window;
 		uint min_recent_value;
 		uint max_recent_value;
+		uint minMaxIncrementsBetweenSamples;
+		tRingBufferInt prior_midpoint_estimates;
+		tRingBufferInt midpoint_samples;
+		uint midpoint_accum;
+		uint prior_midpoints_window;
+		uint midpoint_estimate_window;
+		uint samples_per_midpoint_estimate_check;
+		uint midpoint_estimate_acceptance_threshold;
 
+		float inv_smoothing_window;
+		float inv_super_smoothing_window;
+		float inv_minmax_window;
+		float inv_midpoint_estimate_window;
+		float inv_prior_midpoints_window;
 
 	} _tPluckDetectorInt;
 

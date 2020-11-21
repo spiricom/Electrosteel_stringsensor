@@ -53,9 +53,9 @@ void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const pd, tMempool* 
 
 	p->pluck_strength = 0;
 
-	p->smoothing_window = 16;
+	p->smoothing_window = 8;
     p->super_smoothing_window = 128;
-    p->minmax_window = 16;
+    p->minmax_window = 8;
 
 
     tRingBufferInt_initToPool(&p->smoothed_array, p->smoothing_window, mp);
@@ -66,12 +66,26 @@ void    tPluckDetectorInt_initToPool    (tPluckDetectorInt* const pd, tMempool* 
 
 	p->min_recent_value = 0;
 	p->max_recent_value = 0;
-    p->max_samples_still_same_pluck = 1; //400
-    p->max_var_diff_width = 10000;
-    p->max_width_is_resonating = 1000;
-    p->max_ratio_value_diffs = 0.2f;
-    p->min_value_spread = 10; //500
-    p->min_same_direction_steps = 3; //150
+    p->max_samples_still_same_pluck = 2400; //400
+    p->max_var_diff_width = 100;
+    p->max_width_is_resonating = 2000;
+    p->max_ratio_value_diffs = 100.0f;
+    p->min_value_spread = 100; //500
+    p->min_same_direction_steps = 10; //150
+    p->minMaxIncrementsBetweenSamples = 8;
+    p->midpoint_estimate_window = 4096;
+    p->samples_per_midpoint_estimate_check = 4800;
+    p->midpoint_estimate_acceptance_threshold = 10;
+    p->midpoint_accum = 0;
+    p->prior_midpoints_window = 4;
+    tRingBufferInt_initToPool(&p->prior_midpoint_estimates, p->prior_midpoints_window, mp);
+    tRingBufferInt_initToPool(&p->midpoint_samples, p->midpoint_estimate_window, mp);
+
+	p->inv_smoothing_window = 1.0f / p->smoothing_window;
+	p->inv_super_smoothing_window = 1.0f / p->super_smoothing_window;
+	p->inv_minmax_window = 1.0f / p->minmax_window;
+	p->inv_midpoint_estimate_window = 1.0f / p->midpoint_estimate_window;
+	p->inv_prior_midpoints_window = 1.0f / p->prior_midpoints_window;
 
 }
 void    tPluckDetectorInt_free          (tPluckDetectorInt* const pd)
@@ -92,29 +106,29 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 
 	int pluckHappened = -1;
 
-	//update smoothed for current sample
-	tRingBufferInt_push(&p->smoothed_array, input);
+
 
 	//get the smoothed mean of that array
 	int oldSmoothed = tRingBufferInt_getOldest(&p->smoothed_array);
 	p->smoothedAccum -= oldSmoothed;
 	p->smoothedAccum += input;
-	p->smoothed = p->smoothedAccum / p->smoothing_window; // divide by 16
+	p->smoothed = (uint)(((float)p->smoothedAccum) * p->inv_smoothing_window); // divide by 16
+	//update smoothed for current sample
+	tRingBufferInt_push(&p->smoothed_array, input);
 
-
-	//update super_smoothed for current sample
-	tRingBufferInt_push(&p->super_smoothed_array, p->smoothed); //is this right? should be smoothed and not input, correct?
 
 	//get the smoothed mean of that array
 	int oldSuperSmoothed = tRingBufferInt_getOldest(&p->super_smoothed_array);
 	p->super_smoothedAccum -= oldSuperSmoothed;
 	p->super_smoothedAccum += p->smoothed;
-	p->super_smoothed = p->super_smoothedAccum / p->super_smoothing_window; // divide by 128
+	p->super_smoothed = (uint)(((float)p->super_smoothedAccum) * p->inv_super_smoothing_window); // divide by 128
 
+	//update super_smoothed for current sample
+	tRingBufferInt_push(&p->super_smoothed_array, p->smoothed);
 
 	//### Collect a new data point every MINMAX_INCREMENTS_BETWEEN_SAMPLES steps,
 	//### and collect the current min and max values within this loop since they won't change until the next update
-	if ((p->Pindex % 32) == 0) //maybe have this update as a separate function to avoid the branch every sample?
+	if ((p->Pindex % p->minMaxIncrementsBetweenSamples) == 0) //maybe have this update as a separate function to avoid the branch every sample?
 	{
 			tRingBufferInt_push(&p->minmax_samples, p->smoothed);
 			int tempMin1 = 65535;
@@ -135,6 +149,48 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 			}
 			p->max_recent_value = tempMax1;
 			p->min_recent_value = tempMin1;
+	}
+
+	//only update the midpoint if not in a current pluck
+	//if (p->ready_for_pluck == 1)
+	{
+		int oldMidpointSample = tRingBufferInt_getOldest(&p->midpoint_samples);
+		p->midpoint_accum -= oldMidpointSample;
+		p->midpoint_accum += p->smoothed;
+		float midPointSmoothedAverage = ((float)p->midpoint_accum) * p->inv_midpoint_estimate_window; // divide by 100
+
+		tRingBufferInt_push(&p->midpoint_samples, p->smoothed);
+
+
+		 if (p->Pindex % p->samples_per_midpoint_estimate_check==0)
+		 {
+
+			 tRingBufferInt_push(&p->prior_midpoint_estimates, (int)midPointSmoothedAverage);
+
+			 uint maxMidpointEstimate = 0;
+			 uint minMidpointEstimate = 65535;
+			 float midpointMeanAccum = 0.0f;
+			 for (int i = 0; i < p->prior_midpoints_window; i++)
+			 {
+				 uint testVal = (uint)tRingBufferInt_get(&p->prior_midpoint_estimates, i);
+				 if (testVal > maxMidpointEstimate)
+				 {
+					 maxMidpointEstimate = testVal;
+				 }
+				 else if (testVal < minMidpointEstimate)
+				 {
+					 minMidpointEstimate = testVal;
+				 }
+				 midpointMeanAccum += (float)testVal;
+			 }
+
+			 if ((maxMidpointEstimate - minMidpointEstimate) < p->midpoint_estimate_acceptance_threshold)
+			 {
+				 p->midpoint_estimate = (uint)(midpointMeanAccum * p->inv_prior_midpoints_window);
+				 p->is_midpoint_calculated = 1;
+			 }
+
+		}
 	}
 
 	int outside_envelope = (( p->min_recent_value < p->envelope_min) || (p->max_recent_value > p->envelope_max ));   //# Logical: TRUE/FALSE
@@ -248,10 +304,11 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 	    	}
 			//### ASSEMBLE STATISTICS RELATED TO A 3-POINT PATTERN (UP/DOWN/UP or vice versa)
 	    	int tempZeroCheck = abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[3]);
-	    	if (tempZeroCheck == 0)
+	    	if (tempZeroCheck < 1)
 	    	{
 	    		tempZeroCheck = 1; //prevent divide by zero
 	    	}
+
 			float ratio_value_diffs_1 = ((float)abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[2])) / (float)tempZeroCheck;
 			int spread_value_1 = abs(p->prior_changepoints_value[4] - p->prior_changepoints_value[3]);
 			int falls_about_midpoint_1 = 1;
@@ -340,6 +397,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 					}
 				}
 
+				/*
 				//### IF WE HAVE HAD AT LEAST THREE DETECTIONS OF RESONANCE WITHIN THE SAME PLUCK'S SIGNAL
 				//### THEN WE CAN COMPUTE OR UPDATE THE MIDPOINT ESTIMATE
 				if (p->prior_detect_3_index > 0)
@@ -351,6 +409,7 @@ int   tPluckDetectorInt_tick          (tPluckDetectorInt* const pd, int input)
 						p->is_midpoint_calculated = 1;
 					}
 				}
+				*/
 
 				//### RESET THE DELAY SINCE LAST DETECTION
 				p->delay_since_last_detect = 0;

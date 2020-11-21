@@ -38,6 +38,7 @@
 #include <string.h>
 #include "pluck_detect.h"
 
+#define SDRECORD 1
 #define SAMPLE_RATE 48000
 /* USER CODE END Includes */
 
@@ -57,8 +58,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint8_t SPI_TX[16] __ATTR_RAM_D2;
-uint8_t SPI_RX[16] __ATTR_RAM_D2;
+uint8_t SPI_TX[32] __ATTR_RAM_D2;
+uint8_t SPI_RX[32] __ATTR_RAM_D2;
 
 uint8_t SPI_PLUCK_TX[20] __ATTR_RAM_D2;
 
@@ -71,31 +72,30 @@ FRESULT res;
   FIL myFile;
   FATFS fs;
   DSTATUS statusH;
-  BYTE work[1024]; /* Work area (larger is better for processing time) */
-  uint8_t workBuffer[1024];
+
 int finishSD = 0;
 
 int32_t audioOutBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t audioInBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t ADC_values[NUM_ADC_CHANNELS * ADC_BUFFER_SIZE] __ATTR_RAM_D2;
 
-#define FILTER_ORDER 8
-#define ATODB_TABLE_SIZE 512
-#define ATODB_TABLE_SIZE_MINUS_ONE 511
+#define FILTER_ORDER 2
+#define ATODB_TABLE_SIZE 25000
+#define ATODB_TABLE_SIZE_MINUS_ONE 24999
 
-#define SMALL_MEM_SIZE 10000
-char smallMemory[SMALL_MEM_SIZE];
 
-#define MEDIUM_MEM_SIZE 400000
+#define MEDIUM_MEM_SIZE 300000
 char mediumMemory[MEDIUM_MEM_SIZE] __ATTR_RAM_D1;
 
 tMempool mediumPool;
 
+uint16_t largeMemory[LARGE_MEM_SIZE / sizeof(uint16_t)] __ATTR_SDRAM;
+uint memoryPointer = 0;
 
 float atodbTable[ATODB_TABLE_SIZE];
 tPluckDetectorInt myPluck[NUM_ADC_CHANNELS];
-tHighpass opticalHighpass[NUM_ADC_CHANNELS * FILTER_ORDER];
-tVZFilter opticalLowpass[NUM_ADC_CHANNELS];
+tHighpass opticalHighpass[NUM_ADC_CHANNELS][FILTER_ORDER];
+tVZFilter opticalLowpass[NUM_ADC_CHANNELS][FILTER_ORDER];
 tSlide fastSlide[NUM_ADC_CHANNELS];
 tSlide slowSlide[NUM_ADC_CHANNELS];
 tThreshold threshold[NUM_ADC_CHANNELS];
@@ -174,7 +174,7 @@ int main(void)
 	  SPI_PLUCK_TX[i] = 0;
   }
 
-  HAL_SPI_Receive_DMA(&hspi2, SPI_RX, 16);
+  HAL_SPI_Receive_DMA(&hspi2, SPI_RX, 32);
 
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
   HAL_Delay(10);
@@ -188,28 +188,30 @@ int main(void)
 
  if(BSP_SD_IsDetected())
  {
-   //FS_FileOperations();
+   FS_FileOperations();
  }
 LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
+
+
 for (int i = 0; i < NUM_ADC_CHANNELS; i++)
 {
-	tThreshold_init(&threshold[i],0.5f, 8.0f);
-	tSlide_init(&fastSlide[i],1.0f,1110.0f);
-	tSlide_init(&slowSlide[i],500.0f,1.0f);
-	tVZFilter_init(&opticalLowpass[i], Lowpass, 1000.0f, 0.6f);
+	tThreshold_init(&threshold[i],120.0f, 220.0f);
+	tSlide_init(&fastSlide[i],1.0f,500.0f); //1110
+	tSlide_init(&slowSlide[i],1.0f,500.0f); //1110
+
+	for (int j = 0; j < FILTER_ORDER; j++)
+	{
+		tVZFilter_init(&opticalLowpass[i][j], Lowpass, 2000.0f, 0.6f);
+		tHighpass_init(&opticalHighpass[i][j], 80.0f);
+	}
 }
 
-for (int i = 0; i < NUM_ADC_CHANNELS * FILTER_ORDER; i++)
-{
-	tHighpass_init(&opticalHighpass[i], 100.0f);
-
-}
 LEAF_generate_atodb(atodbTable, ATODB_TABLE_SIZE);
 
 
  for (int j = 0; j < NUM_ADC_CHANNELS; j++)
  {
-	 //tPluckDetectorInt_init(&myPluck[j]);
+	 tPluckDetectorInt_init(&myPluck[j]);
  }
 
  HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&ADC_values,NUM_ADC_CHANNELS * ADC_BUFFER_SIZE);
@@ -418,25 +420,27 @@ void SDRAM_Initialization_sequence(void)
     HAL_SDRAM_ProgramRefreshRate(&hsdram1, SDRAM_REFRESH_COUNT);
 }
 
-
+#ifdef SDRECORD
 
 volatile FRESULT res2;
 uint8_t rtext[100];                                   /* File read buffer */
 uint32_t byteswritten, bytesread;                     /* File write/read counts */
-uint8_t wtext[48000]; /* File write buffer */
-uint8_t tempText[30];
+uint8_t wtext[220000] __ATTR_RAM_D1; /* File write buffer */
+uint32_t wtextPointer = 0;
+char tempText[30];
 int testNumber = 55559;
-int8_t filename[30];
-uint8_t fileExt[] = ".txt";
+char filename[40];
+char fileExt[] = ".txt";
 static void FS_FileOperations(void)
 {
-  int theNumber = randomNumber() * 65535;
+  uint theNumber = randomNumber() * 65535;
   itoa(theNumber,tempText, 10);
   strncat(filename, tempText, sizeof(tempText));
   strncat(filename, fileExt, sizeof(fileExt));
   statusH = disk_initialize(0);
+  HAL_Delay(10);
   /* Register the file system object to the FatFs module */
-  if(f_mount(&MMCFatFs, (TCHAR const*)SDPath, 0) == FR_OK)
+  if(f_mount(&MMCFatFs, (TCHAR const*)SDPath, 1) == FR_OK)
   {
 	  {
 		  if(f_open(&myFile, filename, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK)
@@ -449,8 +453,72 @@ static void FS_FileOperations(void)
 
 uint8_t comma[] = ", ";
 uint8_t newline[] = "\r\n";
-uint64_t memoryPointer = 0;
-char largeMemory[LARGE_MEM_SIZE] __ATTR_SDRAM;
+
+void writeSD(void)
+{
+	if (SDReady == 1)
+	{
+		int maxPointer = memoryPointer;
+		__disable_irq();
+		for (int j = 0; j < maxPointer; j++)
+		{
+			//get number
+			int theNumber = (int)largeMemory[j];
+			//clear temp text
+			for (int i = 0; i < 10; i++)
+			{
+				tempText[i] = 0;
+			}
+			itoa(theNumber,tempText, 10);
+
+			//if you don't have room in the temp buffer, write it to the SD card
+			if (wtextPointer > (220000 - 20))
+			{
+				//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+
+				 f_write(&myFile, wtext, wtextPointer, (void *)&byteswritten);
+				 wtextPointer = 0;
+
+			}
+			for (int i = 0; i < 5; i++)
+			{
+				if (tempText[i] != 0)
+				{
+					wtext[wtextPointer] = tempText[i];
+					wtextPointer++;
+				}
+			}
+			if (((j + 1) % 50) == 0)
+			{
+
+				wtext[wtextPointer] = 59;
+				wtextPointer++;
+				wtext[wtextPointer] = 13;
+				wtextPointer++;
+				wtext[wtextPointer] = 10;
+
+			}
+			else
+			{
+				wtext[wtextPointer] = 32;
+			}
+
+			wtextPointer++;
+
+		}
+		res2 = f_close(&myFile);
+
+		 HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+		 if (res2 == FR_OK)
+		 {
+			 HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+		 }
+		__enable_irq();
+	}
+}
+
+
+
 void writeToSD(int theIndex, int theNumber, int whichString, int didPlucked)
 {
 	if(finishSD == 1)
@@ -759,6 +827,8 @@ void writeToSD(int theIndex, int theNumber, int whichString, int didPlucked)
 		SDWriteIndex++;
 	}
 }
+#endif
+
 void MPU_Conf(void)
 {
 	//code from Keshikan https://github.com/keshikan/STM32H7_DMA_sample
@@ -847,130 +917,85 @@ void MPU_Conf(void)
 	  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
 
-int previousOutOfThresh[NUM_ADC_CHANNELS];
-int outOfThreshPositiveChange[NUM_ADC_CHANNELS];
-float status[NUM_ADC_CHANNELS];
-float currentMaximum[NUM_ADC_CHANNELS];
-int sahArmed[NUM_ADC_CHANNELS];
-int noteOnHappened[NUM_ADC_CHANNELS];
-int delayCounter[NUM_ADC_CHANNELS];
-int outOfThresh[NUM_ADC_CHANNELS];
-float attackDetect2(int whichString, int tempInt)
+float Dsmoothed;
+float Dsmoothed2;
+float dbSmoothed2;
+
+int armed[NUM_STRINGS] = {0,0,0,0,0,0,0,0,0,0};
+float prevdbSmoothed2[NUM_STRINGS];
+int threshOut = 0;
+int stringMaxes[NUM_STRINGS] = {0,0,0,0,0,0,0,0,0,0};
+int downCounter[NUM_STRINGS];
+int armedCounter[NUM_STRINGS];
+float slopeStorage[NUM_STRINGS];
+int attackDetectPeak2 (int whichString, int tempInt)
 {
-	float intoThresh = 0.0f;
-	float dbSmoothed = 0.0f;
-	float dbSmoothed2 = 0.0f;
-	float Dsmoothed = 0.0f;
-	float Dsmoothed2 = 0.0f;
-	float tempAbs = 0.0f;
-
-	float increment = 0.000755857898715f;
-	float output = 0.0f;
-	// turn it into floating point -1.0 to 1.0
+	float output = -1;
 	float tempSamp = (((float)tempInt - TWO_TO_15) * INV_TWO_TO_15);
-
 	for (int k = 0; k < FILTER_ORDER; k++)
 	{
 		// a highpass filter, remove any slow moving signal (effectively centers the signal around zero and gets rid of the signal that isn't high frequency vibration) cutoff of 100Hz, // applied 8 times to get rid of a lot of low frequency bumbling around
-		tempSamp = tHighpass_tick(&opticalHighpass[whichString + (NUM_STRINGS * k)], tempSamp);
+		tempSamp = tHighpass_tick(&opticalHighpass[whichString][k], tempSamp);
+		tempSamp = tVZFilter_tick(&opticalLowpass[whichString][k], tempSamp * 1.0f);
 	}
 
-	//lowpass filter to smooth it (cutoff at 1000 Hz)
-	tempSamp = tVZFilter_tickEfficient(&opticalLowpass[whichString], tempSamp) * 1.5f;
+	float tempAbs = fabsf(tempSamp);
 
-	float input = tempSamp;
-	noteOnHappened[whichString] = 0;
-
-	//absolute value
-	tempAbs = fabsf(input);
-	//pastValues[whichString][whichVal%512] = tempAbs;
-
-	// smoothed is a linear smoother that doesn't smooth if the sample is going up but smoothes over 1110 samples going down
 	Dsmoothed = tSlide_tick(&fastSlide[whichString], tempAbs);
-
-	// smoothed2 takes smoothed value as input and smoothes over 500 samples if it's going up but doesn't smooth if it's going down
-	Dsmoothed2  = tSlide_tick(&slowSlide[whichString], Dsmoothed);
-
-	//convert linear amplitude to decibels (using a lookup table but it's just the standard atodb algorithm, clipped so it doesn't go below a lower threshold)
-	dbSmoothed = LEAF_clip(-60.0f, atodbTable[(uint32_t)(Dsmoothed * ATODB_TABLE_SIZE_MINUS_ONE)], 12.0f);
-	dbSmoothed2 = LEAF_clip(-60.0f, atodbTable[(uint32_t)(Dsmoothed2 * ATODB_TABLE_SIZE_MINUS_ONE)], 12.0f);
-	intoThresh = dbSmoothed - dbSmoothed2;
-
-	//threshold detector turns on (gives a 1) when signal goes above 0.5 and off (gives a 0) when signal goes below 8.0 (to give some hysteresis)
-	outOfThresh[whichString] = tThreshold_tick(&threshold[whichString], intoThresh);
-
-
-	if ((outOfThresh[whichString] > 0) && (previousOutOfThresh[whichString] == 0))
+	Dsmoothed2 = tSlide_tick(&slowSlide[whichString], Dsmoothed);
+	Dsmoothed2 = LEAF_clip(0.0f, Dsmoothed2, 1.0f);
+	//dbSmoothed2 = atodb(Dsmoothed2);
+	dbSmoothed2 = LEAF_clip(-80.0f, atodbTable[(uint32_t)(Dsmoothed2 * ATODB_TABLE_SIZE_MINUS_ONE)], 12.0f);
+	//dbSmoothed2 = LEAF_clip(-50.f, dbSmoothed2, 12.0f);
+	//get the slope
+	float slope = (dbSmoothed2 - prevdbSmoothed2[whichString]);
+	slopeStorage[whichString] = slope;
+	float integerVersion = Dsmoothed2 * (TWO_TO_16 - 1);
+	threshOut = tThreshold_tick(&threshold[whichString], integerVersion);
+	if ((slope > 0.1f) && (threshOut > 0))
 	{
-		outOfThreshPositiveChange[whichString] = 1;
+		armed[whichString] = 1;
 	}
 
-	else
+	if (armed[whichString] == 1)
 	{
-		outOfThreshPositiveChange[whichString] = 0;
+		if (integerVersion > stringMaxes[whichString])
+		{
+			stringMaxes[whichString] = integerVersion;
+		}
+		armedCounter[whichString]++;
+
+		if (slope <= 0.0f)
+		{
+			downCounter[whichString]++;
+		}
+		if (downCounter[whichString] > 128)
+		{
+			//found a peak?
+			output = stringMaxes[whichString];
+			output = LEAF_clip(0.0f, output, 65535.0f);
+			armed[whichString] = 0;
+			armedCounter[whichString] = 0;
+			downCounter[whichString] = 0;
+			stringMaxes[whichString] = 0;
+		}
 	}
 
-	previousOutOfThresh[whichString] = outOfThresh[whichString];
-
-
-
-	//if you didn't get an attack within the last 1323 samples, and you got one now (because status counts down over 1323 samples)
-	if ((status[whichString] <= 0.0f) && (outOfThreshPositiveChange[whichString] == 1))
-	{
-		// this unfortunately makes it so we can't detect multiple plucks on different strings, but supresses the ghost plucks most of the time
-		// status is a countdown noting that we have detected the start of a pluck and we can't pluck again until status has reaches zero.
-		status[whichString] = 1.0f;
-		//status[1] = 1.0f;
-		//status[2] = 1.0f;
-		//status[3] = 1.0f;
-
-		currentMaximum[whichString] = 0.0f;
-
-		// sah is the "Sample and Hold "- we are "arming" the sample and hold to preserve the maximum value... just a flag to know we are waiting for the "maximum" info
-		sahArmed[whichString] = 1;
-
-		//delay counter waits 200 samples from beginning of pluck detection to try to ride to the peak
-		delayCounter[whichString] = 200;
-	}
-
-	else if (status[whichString] > 0.0f)
-	{
-		status[whichString] = status[whichString] - (increment); //count down over 1232 samples
-	}
-
-	//if we believe a pluck has started and we are now watching to find the peak, keep track of the maximum
-	if (tempAbs > currentMaximum[whichString])
-	{
-		currentMaximum[whichString] = tempAbs;
-	}
-
-	// count down until we think we've got the maximum for sure
-	if (delayCounter[whichString] > 0)
-	{
-		delayCounter[whichString]--;
-	}
-
-	//if you waited some number of samples to ride to the peak, then now make a noteOn event
-	if ((sahArmed[whichString] == 1) && (delayCounter[whichString] == 0))
-	{
-		//we got a note on - the amplitude is currentMaximum[whichString]
-		//tADSR_on(&envelope[0], currentMaximum[whichString]);
-		output = currentMaximum[whichString];
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
-		sahArmed[whichString] = 0;
-	}
-
-	return output;
+	prevdbSmoothed2[whichString] = dbSmoothed2;
+	return (int)output;
 }
-
-
 
 
 uint16_t stringPositions[NUM_ADC_CHANNELS];
 uint16_t stringTouchRH[NUM_ADC_CHANNELS];
 int didPlucked[NUM_ADC_CHANNELS];
 int stringSounding[NUM_ADC_CHANNELS];
-float ad2Pluck[NUM_ADC_CHANNELS];
+
+int howManyFrames = 48000;
+int brokedIt = 0;
+int didPlucked2[10];
+int pluckDelay[10];
+int pluckValues[10];
 void ADC_Frame(int offset)
 {
 	//HAL_GPIO_TogglePin(GPIOG, GPIO_PIN_11);
@@ -978,76 +1003,129 @@ void ADC_Frame(int offset)
 	int changeHappened = 0;
 	//sampRecords[currentSamp] = frameCount;
 	//currentSamp++;
+
 	for (int i = offset; i < ADC_FRAME_SIZE + offset; i++)
 	{
 		//for (int j = 0; j < NUM_ADC_CHANNELS; j++)
+		if (howManyFrames > 0)
+		{
+			howManyFrames--;
+		}
 		for (int j = 0; j < 10; j++)
 		{
 			int tempInt = ADC_values[(i*NUM_ADC_CHANNELS) + j];
 
-			//didPlucked[j] = tPluckDetectorInt_tick(&myPluck[j], tempInt);
-			ad2Pluck[j] = attackDetect2(j, tempInt);
-			didPlucked[j] = (uint)LEAF_clip(0.0f,(ad2Pluck[j] * 65535.0f), 65535.0f);
-			if (didPlucked[j] > 0)
-			{
-				SPI_PLUCK_TX[(j * 2)] = (didPlucked[j] >> 8);
-				SPI_PLUCK_TX[(j * 2) + 1] = (didPlucked[j] & 0xff);
-				//a pluck happened! send a message over SPI to the other ICs
-				//TODO: a pluck message
-				if (j == 0)
-				{
-
-					HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-				}
-				//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
-				/*
-				SPI_PLUCK_TX[0] = j;
-				SPI_PLUCK_TX[1] = (uint8_t) (didPlucked[j] >> 8); //low byte
-				SPI_PLUCK_TX[2] = (uint8_t) (didPlucked[j] & 0xff); //low byte
-				SPI_PLUCK_TX[3] = 0;
-				*/
-				changeHappened = 1;
-				stringSounding[j] = 1;
-
-				//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 4);
-			}
-			//float tempSamp = (((float)tempInt - INV_TWO_TO_15) * INV_TWO_TO_15);
-
-			//stringPositions[j] =  ((uint16_t)SPI_RX[j * 2] << 8) + ((uint16_t)SPI_RX[(j * 2) + 1] & 0xff);
-			//if (stringPositions[j] == 65535)
-			//{
-			//	stringPositions[j] = 0;
-			//}
-			//stringTouchLH[j] = (SPI_RX[8] >> j) & 1;
 			if (j < 8)
 			{
-				stringTouchRH[j] = (SPI_RX[8] >> j) & 1;
+				stringTouchRH[j] = (SPI_RX[4] >> j) & 1;
 			}
 			else
 			{
-				stringTouchRH[j] = (SPI_RX[9] >> (j-8)) & 1;
+				stringTouchRH[j] = (SPI_RX[5] >> (j-8)) & 1;
 			}
-			if ((stringTouchRH[j]) && (stringSounding[j]))
+			didPlucked[j] = attackDetectPeak2(j, tempInt);
+			/*
+			if (didPlucked2[j] < 0)
 			{
-				//a note-off happened! send a message over SPI to the other ICs
-				/*
-				SPI_PLUCK_TX[0] = j;
-				SPI_PLUCK_TX[1] = 0;
-				SPI_PLUCK_TX[2] = 0;
-				SPI_PLUCK_TX[3] = 0;
-				*/
-				SPI_PLUCK_TX[(j * 2)] = 0;
-				SPI_PLUCK_TX[(j * 2) + 1] = 0;
-				if (j == 0)
-				{
-					HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
-
-				}
-				//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
-				changeHappened = 1;
-				stringSounding[j] = 0;
+				didPlucked2[j] = 0;
 			}
-			//tempSamp = tHighpass_tick(&opticalHighpass[j+NUM_STRINGS], tHighpass_tick(&opticalHighpass[j], tempSamp));
+			//didPlucked2[j] = tPluckDetectorInt_tick(&myPluck[j], tempInt);
+			if (didPlucked[j] < 0)
+			{
+				didPlucked[j] = 0;
+			}
+			*/
+			/*
+			else if (didPlucked[j] > 0)
+			{
+				pluckDelay[j] = 1;
+				pluckValues[j] = didPlucked[j];
+			}
+
+			int doIt = 0;
+*/
+			if (howManyFrames == 0)
+			{
+				/*
+				if (pluckDelay[j] > 128)
+				{
+					doIt = 1;
+					pluckDelay[j] = 0;
+				}
+				if (pluckDelay[j] > 0)
+				{
+					pluckDelay[j]++;
+				}
+*/
+				if ((didPlucked[j] > 0) && (!stringSounding[j]))
+				{
+					SPI_PLUCK_TX[(j * 2)] = (didPlucked[j] >> 8);
+					SPI_PLUCK_TX[(j * 2) + 1] = (didPlucked[j] & 0xff);
+					//a pluck happened! send a message over SPI to the other ICs
+					//TODO: a pluck message
+					//if (j == 1)
+					//{
+
+						//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+					//}
+					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
+					/*
+					SPI_PLUCK_TX[0] = j;
+					SPI_PLUCK_TX[1] = (uint8_t) (didPlucked[j] >> 8); //low byte
+					SPI_PLUCK_TX[2] = (uint8_t) (didPlucked[j] & 0xff); //low byte
+					SPI_PLUCK_TX[3] = 0;
+					*/
+					changeHappened = 1;
+					stringSounding[j] = 1;
+					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 4);
+				}
+
+				if ((stringTouchRH[j]) && (stringSounding[j]))
+				{
+					//a note-off happened! send a message over SPI to the other ICs
+					/*
+					SPI_PLUCK_TX[0] = j;
+					SPI_PLUCK_TX[1] = 0;
+					SPI_PLUCK_TX[2] = 0;
+					SPI_PLUCK_TX[3] = 0;
+					*/
+					SPI_PLUCK_TX[(j * 2)] = 0;
+					SPI_PLUCK_TX[(j * 2) + 1] = 0;
+					//if (j == 1)
+					//{
+						//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+
+					//}
+					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
+					changeHappened = 1;
+					stringSounding[j] = 0;
+				}
+
+/*
+				if (memoryPointer < ((LARGE_MEM_SIZE / 2) - 10))
+				{
+					largeMemory[memoryPointer++] = (uint16_t)tempInt;
+					largeMemory[memoryPointer++] = (uint16_t)didPlucked[j];
+					largeMemory[memoryPointer++] = (uint16_t)(myPluck[j]->ready_for_pluck);
+					largeMemory[memoryPointer++] = (uint16_t)(myPluck[j]->midpoint_estimate);
+					largeMemory[memoryPointer++] = (uint16_t)didPlucked2[j];
+					largeMemory[memoryPointer++] = (uint16_t)armed[j];
+					largeMemory[memoryPointer++] = (uint16_t)downCounter[j];
+					largeMemory[memoryPointer++] = (uint16_t)((slopeStorage[j] * 4096.0f) + 2048.0f);
+					largeMemory[memoryPointer++] = (uint16_t)stringTouchRH[j];
+					largeMemory[memoryPointer++] = (uint16_t)stringSounding[j];
+				}
+				else
+				{
+					writeSD();
+
+					while(1)
+					{
+						//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+					}
+				}
+*/
+			}
 			//itoa(SDWriteIndex, wtext, 4);
 /*
 			if (SDReady)
