@@ -1,3 +1,6 @@
 [submodule "leaf"]
 	path = leaf
 	url = https://github.com/spiricom/leaf
+[submodule "electrosteel_string_H750ZB/leaf"]
+	path = electrosteel_string_H750ZB/leaf
+	url = https://github.com/spiricom/leaf

@@ -1,5 +1,0 @@
-pluck_detect.c:4:5:LEAF_sign	0	static
-pluck_detect.c:12:9:tPluckDetectorInt_initToPool	32	static
-pluck_detect.c:8:9:tPluckDetectorInt_init	0	static
-pluck_detect.c:91:9:tPluckDetectorInt_free	8	static
-pluck_detect.c:103:7:tPluckDetectorInt_tick	112	static
