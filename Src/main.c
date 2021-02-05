@@ -32,7 +32,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "pluck_detect.h"
+#include "leaf.h"
 
 #define SDRECORD 1
 #define SAMPLE_RATE 48000
@@ -54,10 +54,10 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint8_t SPI_TX[32] __ATTR_RAM_D2;
-uint8_t SPI_RX[32] __ATTR_RAM_D2;
+uint8_t SPI_TX[8] __ATTR_RAM_D2;
+uint8_t SPI_RX[8] __ATTR_RAM_D2;
 
-uint8_t SPI_PLUCK_TX[20] __ATTR_RAM_D2;
+uint8_t SPI_PLUCK_TX[22] __ATTR_RAM_D2;
 
 
 uint8_t counter;
@@ -67,10 +67,10 @@ int32_t audioOutBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t audioInBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t ADC_values[NUM_ADC_CHANNELS * ADC_BUFFER_SIZE] __ATTR_RAM_D2;
 
-#define FILTER_ORDER 2
-#define ATODB_TABLE_SIZE 25000
-#define ATODB_TABLE_SIZE_MINUS_ONE 24999
-
+#define FILTER_ORDER 8
+#define ATODB_TABLE_SIZE 24000
+#define ATODB_TABLE_SIZE_MINUS_ONE 23999
+#define DOWNCOUNT 256
 
 #define MEDIUM_MEM_SIZE 300000
 char mediumMemory[MEDIUM_MEM_SIZE] __ATTR_RAM_D1;
@@ -81,12 +81,14 @@ tMempool mediumPool;
 //uint memoryPointer = 0;
 
 float atodbTable[ATODB_TABLE_SIZE];
-tPluckDetectorInt myPluck[NUM_ADC_CHANNELS];
+
 tHighpass opticalHighpass[NUM_ADC_CHANNELS][FILTER_ORDER];
 tVZFilter opticalLowpass[NUM_ADC_CHANNELS][FILTER_ORDER];
 tSlide fastSlide[NUM_ADC_CHANNELS];
 tSlide slowSlide[NUM_ADC_CHANNELS];
 tThreshold threshold[NUM_ADC_CHANNELS];
+int threshold_values[NUM_ADC_CHANNELS][2] = {{200.0f, 300.0f},{200.0f, 300.0f},{200.0f, 300.0f},{200.0f, 300.0f},{200.0f, 250.0f},{200.0f, 250.0f},{200.0f, 250.0f},{200.0f, 250.0f},{200.0f, 250.0f},{200.0f, 250.0f}};
+LEAF leaf;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -149,17 +151,17 @@ int main(void)
   tempFPURegisterVal |= (1<<24); // set the FTZ (flush-to-zero) bit in the FPU control register
   __set_FPSCR(tempFPURegisterVal);
 
-  for (int i = 0; i < 16; i++)
+  for (int i = 0; i < 8; i++)
   {
 	  SPI_TX[i] = counter++;
   }
 
-  for (int i = 0; i < 20; i++)
+  for (int i = 0; i < 4; i++)
   {
 	  SPI_PLUCK_TX[i] = 0;
   }
 
-  HAL_SPI_Receive_DMA(&hspi2, SPI_RX, 32);
+  HAL_SPI_Receive_DMA(&hspi2, SPI_RX, 8);
 
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
   HAL_Delay(10);
@@ -171,29 +173,26 @@ int main(void)
   HAL_SAI_Receive_DMA(&hsai_BlockB1, (uint8_t *)&audioInBuffer[0], AUDIO_BUFFER_SIZE);
 
 
-LEAF_init(SAMPLE_RATE, AUDIO_FRAME_SIZE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
+LEAF_init(&leaf, SAMPLE_RATE, AUDIO_FRAME_SIZE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
 
 
 for (int i = 0; i < NUM_ADC_CHANNELS; i++)
 {
-	tThreshold_init(&threshold[i],120.0f, 220.0f);
-	tSlide_init(&fastSlide[i],1.0f,500.0f); //1110
-	tSlide_init(&slowSlide[i],1.0f,500.0f); //1110
+	tThreshold_init(&threshold[i],threshold_values[i][0], threshold_values[i][1], &leaf);
+	tSlide_init(&fastSlide[i],1.0f,550.0f, &leaf); //1110
+	tSlide_init(&slowSlide[i],1.0f,550.0f, &leaf); //1110
 
 	for (int j = 0; j < FILTER_ORDER; j++)
 	{
-		tVZFilter_init(&opticalLowpass[i][j], Lowpass, 2000.0f, 0.6f);
-		tHighpass_init(&opticalHighpass[i][j], 80.0f);
+		tVZFilter_init(&opticalLowpass[i][j], Lowpass, 2000.0f, 0.6f, &leaf);
+		tHighpass_init(&opticalHighpass[i][j], 40.0f, &leaf);
 	}
 }
 
 LEAF_generate_atodb(atodbTable, ATODB_TABLE_SIZE);
 
-
- for (int j = 0; j < NUM_ADC_CHANNELS; j++)
- {
-	 tPluckDetectorInt_init(&myPluck[j]);
- }
+SPI_PLUCK_TX[0] = 254;//start message
+SPI_PLUCK_TX[21] = 253;//end message
 
  HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&ADC_values,NUM_ADC_CHANNELS * ADC_BUFFER_SIZE);
   /* USER CODE END 2 */
@@ -411,6 +410,7 @@ float Dsmoothed;
 float Dsmoothed2;
 float dbSmoothed2;
 
+int integerVersions[10];
 int armed[NUM_STRINGS] = {0,0,0,0,0,0,0,0,0,0};
 float prevdbSmoothed2[NUM_STRINGS];
 int threshOut = 0;
@@ -426,9 +426,9 @@ int attackDetectPeak2 (int whichString, int tempInt)
 	{
 		// a highpass filter, remove any slow moving signal (effectively centers the signal around zero and gets rid of the signal that isn't high frequency vibration) cutoff of 100Hz, // applied 8 times to get rid of a lot of low frequency bumbling around
 		tempSamp = tHighpass_tick(&opticalHighpass[whichString][k], tempSamp);
-		tempSamp = tVZFilter_tick(&opticalLowpass[whichString][k], tempSamp * 1.0f);
-	}
 
+	}
+	tempSamp = tVZFilter_tick(&opticalLowpass[whichString][0], tempSamp);
 	float tempAbs = fabsf(tempSamp);
 
 	Dsmoothed = tSlide_tick(&fastSlide[whichString], tempAbs);
@@ -441,8 +441,9 @@ int attackDetectPeak2 (int whichString, int tempInt)
 	float slope = (dbSmoothed2 - prevdbSmoothed2[whichString]);
 	slopeStorage[whichString] = slope;
 	float integerVersion = Dsmoothed2 * (TWO_TO_16 - 1);
+	integerVersions[whichString] = integerVersion;
 	threshOut = tThreshold_tick(&threshold[whichString], integerVersion);
-	if ((slope > 0.1f) && (threshOut > 0))
+	if ((slope > 0.2f) && (threshOut > 0))//was 0.1
 	{
 		armed[whichString] = 1;
 	}
@@ -459,7 +460,11 @@ int attackDetectPeak2 (int whichString, int tempInt)
 		{
 			downCounter[whichString]++;
 		}
-		if (downCounter[whichString] > 128)
+		if (slope > 0.0f)
+		{
+			downCounter[whichString] = 0; //reset the down counter if the amplitude starts going back up
+		}
+		if (downCounter[whichString] > DOWNCOUNT)
 		{
 			//found a peak?
 			output = stringMaxes[whichString];
@@ -513,7 +518,14 @@ void ADC_Frame(int offset)
 			{
 				stringTouchRH[j] = (SPI_RX[5] >> (j-8)) & 1;
 			}
-			didPlucked[j] = attackDetectPeak2(j, tempInt);
+			if (howManyFrames > 0)
+			{
+				attackDetectPeak2(j, tempInt);
+			}
+			else
+			{
+				didPlucked[j] = attackDetectPeak2(j, tempInt);
+			}
 			/*
 			if (didPlucked2[j] < 0)
 			{
@@ -534,8 +546,7 @@ void ADC_Frame(int offset)
 
 			int doIt = 0;
 */
-			if (howManyFrames == 0)
-			{
+
 				/*
 				if (pluckDelay[j] > 128)
 				{
@@ -549,22 +560,29 @@ void ADC_Frame(int offset)
 */
 				if ((didPlucked[j] > 0) && (!stringSounding[j]))
 				{
-					SPI_PLUCK_TX[(j * 2)] = (didPlucked[j] >> 8);
-					SPI_PLUCK_TX[(j * 2) + 1] = (didPlucked[j] & 0xff);
+					/*
+					SPI_PLUCK_TX[0] = 254;
+					SPI_PLUCK_TX[1] = j;
+					SPI_PLUCK_TX[2] = (didPlucked[j] >> 8);
+					SPI_PLUCK_TX[3] = (didPlucked[j] & 0xff);
+					*/
 					//a pluck happened! send a message over SPI to the other ICs
 					//TODO: a pluck message
-					//if (j == 1)
-					//{
+					//clip to 14-bits so we can reserve high bits for start and end indication
+					if (didPlucked[j] > 16384)
+					{
+						didPlucked[j] = 16384;
+					}
+					if (j == 0)
+					{
+						HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+					}
+					//HAL_SPI_Transmit(&hspi1, SPI_PLUCK_TX, 4, 1000);
 
-						//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-					//}
-					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
-					/*
-					SPI_PLUCK_TX[0] = j;
-					SPI_PLUCK_TX[1] = (uint8_t) (didPlucked[j] >> 8); //low byte
-					SPI_PLUCK_TX[2] = (uint8_t) (didPlucked[j] & 0xff); //low byte
-					SPI_PLUCK_TX[3] = 0;
-					*/
+
+					SPI_PLUCK_TX[j*2+1] = (uint8_t) (didPlucked[j] >> 7); //high byte
+					SPI_PLUCK_TX[j*2+2] = (uint8_t) (didPlucked[j] & 127); //low byte
+
 					changeHappened = 1;
 					stringSounding[j] = 1;
 					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 4);
@@ -573,20 +591,15 @@ void ADC_Frame(int offset)
 				if ((stringTouchRH[j]) && (stringSounding[j]))
 				{
 					//a note-off happened! send a message over SPI to the other ICs
-					/*
-					SPI_PLUCK_TX[0] = j;
-					SPI_PLUCK_TX[1] = 0;
-					SPI_PLUCK_TX[2] = 0;
-					SPI_PLUCK_TX[3] = 0;
-					*/
-					SPI_PLUCK_TX[(j * 2)] = 0;
-					SPI_PLUCK_TX[(j * 2) + 1] = 0;
-					//if (j == 1)
-					//{
-						//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
 
-					//}
-					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
+					SPI_PLUCK_TX[j*2+1] = 0x00; //low byte
+					SPI_PLUCK_TX[j*2+2] = 0x00; //low byte
+					if (j == 0)
+					{
+						HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+
+					}
+					//HAL_SPI_Transmit(&hspi1, SPI_PLUCK_TX, 4, 1000);
 					changeHappened = 1;
 					stringSounding[j] = 0;
 				}
@@ -631,13 +644,13 @@ void ADC_Frame(int offset)
 				}
 			}
 */
-		}
+
 
 	}
 	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
 	if (changeHappened)
 	{
-		HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
+		HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 22);
 	}
 }
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
