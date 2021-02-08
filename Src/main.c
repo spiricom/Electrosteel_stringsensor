@@ -77,8 +77,8 @@ char mediumMemory[MEDIUM_MEM_SIZE] __ATTR_RAM_D1;
 
 tMempool mediumPool;
 
-//uint16_t largeMemory[LARGE_MEM_SIZE / sizeof(uint16_t)] __ATTR_SDRAM;
-//uint memoryPointer = 0;
+uint16_t largeMemory[LARGE_MEM_SIZE / sizeof(uint16_t)] __ATTR_SDRAM;
+uint32_t memoryPointer = 0;
 
 float atodbTable[ATODB_TABLE_SIZE];
 
@@ -609,9 +609,6 @@ void ADC_Frame(int offset)
 				{
 					largeMemory[memoryPointer++] = (uint16_t)tempInt;
 					largeMemory[memoryPointer++] = (uint16_t)didPlucked[j];
-					largeMemory[memoryPointer++] = (uint16_t)(myPluck[j]->ready_for_pluck);
-					largeMemory[memoryPointer++] = (uint16_t)(myPluck[j]->midpoint_estimate);
-					largeMemory[memoryPointer++] = (uint16_t)didPlucked2[j];
 					largeMemory[memoryPointer++] = (uint16_t)armed[j];
 					largeMemory[memoryPointer++] = (uint16_t)downCounter[j];
 					largeMemory[memoryPointer++] = (uint16_t)((slopeStorage[j] * 4096.0f) + 2048.0f);
@@ -627,8 +624,9 @@ void ADC_Frame(int offset)
 						//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
 					}
 				}
-*/
+
 			}
+			*/
 			//itoa(SDWriteIndex, wtext, 4);
 /*
 			if (SDReady)
