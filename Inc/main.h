@@ -29,6 +29,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32h7xx_hal.h"
+#include "stm32h7xx_hal.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -57,7 +58,7 @@ extern "C" {
 #define LHMUTE_COUNTLIM 100
 #define RHMUTE_COUNTLIM 1
 
-#define AUDIO_FRAME_SIZE 32
+#define AUDIO_FRAME_SIZE 512
 #define AUDIO_BUFFER_SIZE AUDIO_FRAME_SIZE * 4
 #define ADC_FRAME_SIZE 4
 #define ADC_BUFFER_SIZE ADC_FRAME_SIZE * 2

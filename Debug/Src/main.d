@@ -33,10 +33,23 @@ Src/main.o: ../Src/main.c ../Inc/main.h \
  ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_rng.h \
  ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sai.h \
  ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sai_ex.h \
+ ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sd.h \
+ ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_sdmmc.h \
+ ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_delayblock.h \
+ ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sd_ex.h \
+ ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sdram.h \
+ ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_fmc.h \
  ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_spi.h \
  ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_spi_ex.h ../Inc/adc.h \
- ../Inc/main.h ../Inc/dma.h ../Inc/i2c.h ../Inc/rng.h ../Inc/sai.h \
- ../Inc/spi.h ../Inc/gpio.h \
+ ../Inc/main.h ../Inc/dma.h ../Inc/fatfs.h \
+ /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff.h \
+ /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/integer.h \
+ ../Inc/ffconf.h ../Inc/bsp_driver_sd.h ../Inc/fatfs_platform.h \
+ /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff_gen_drv.h \
+ /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/diskio.h \
+ /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff.h \
+ ../Inc/sd_diskio.h ../Inc/i2c.h ../Inc/rng.h ../Inc/sai.h ../Inc/sdmmc.h \
+ ../Inc/spi.h ../Inc/gpio.h ../Inc/fmc.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/leaf.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-global.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-mempool.h \
@@ -137,6 +150,18 @@ Src/main.o: ../Src/main.c ../Inc/main.h \
 
 ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sai_ex.h:
 
+../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sd.h:
+
+../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_sdmmc.h:
+
+../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_delayblock.h:
+
+../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sd_ex.h:
+
+../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_sdram.h:
+
+../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_fmc.h:
+
 ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_spi.h:
 
 ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_spi_ex.h:
@@ -147,15 +172,39 @@ Src/main.o: ../Src/main.c ../Inc/main.h \
 
 ../Inc/dma.h:
 
+../Inc/fatfs.h:
+
+/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff.h:
+
+/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/integer.h:
+
+../Inc/ffconf.h:
+
+../Inc/bsp_driver_sd.h:
+
+../Inc/fatfs_platform.h:
+
+/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff_gen_drv.h:
+
+/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/diskio.h:
+
+/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff.h:
+
+../Inc/sd_diskio.h:
+
 ../Inc/i2c.h:
 
 ../Inc/rng.h:
 
 ../Inc/sai.h:
 
+../Inc/sdmmc.h:
+
 ../Inc/spi.h:
 
 ../Inc/gpio.h:
+
+../Inc/fmc.h:
 
 /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/leaf.h:
 
