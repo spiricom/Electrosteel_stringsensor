@@ -2,6 +2,8 @@ leaf/leaf/Src/leaf-analysis.o: ../leaf/leaf/Src/leaf-analysis.c \
  ../leaf/leaf/Src/../Inc/leaf-analysis.h \
  ../leaf/leaf/Src/../Inc/leaf-global.h \
  ../leaf/leaf/Src/../Inc/leaf-mempool.h \
+ ../leaf/leaf/Src/../Inc/../leaf-config.h \
+ ../leaf/leaf/Src/../Inc/leaf-distortion.h \
  ../leaf/leaf/Src/../Inc/leaf-math.h \
  ../leaf/leaf/Src/../Inc/leaf-filters.h \
  ../leaf/leaf/Src/../Inc/leaf-delay.h \
@@ -15,6 +17,10 @@ leaf/leaf/Src/leaf-analysis.o: ../leaf/leaf/Src/leaf-analysis.c \
 ../leaf/leaf/Src/../Inc/leaf-global.h:
 
 ../leaf/leaf/Src/../Inc/leaf-mempool.h:
+
+../leaf/leaf/Src/../Inc/../leaf-config.h:
+
+../leaf/leaf/Src/../Inc/leaf-distortion.h:
 
 ../leaf/leaf/Src/../Inc/leaf-math.h:
 

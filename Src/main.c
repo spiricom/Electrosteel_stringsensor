@@ -224,7 +224,7 @@ int main(void)
    FS_FileOperations();
  }
 #endif
-LEAF_init(&leaf, SAMPLE_RATE, AUDIO_FRAME_SIZE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
+LEAF_init(&leaf, SAMPLE_RATE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
 
 
 for (int i = 0; i < NUM_ADC_CHANNELS; i++)

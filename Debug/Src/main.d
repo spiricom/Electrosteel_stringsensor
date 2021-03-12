@@ -53,6 +53,7 @@ Src/main.o: ../Src/main.c ../Inc/main.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/leaf.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-global.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-mempool.h \
+ /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/../leaf-config.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-math.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-global.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-mempool.h \
@@ -61,6 +62,7 @@ Src/main.o: ../Src/main.c ../Inc/main.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-distortion.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-dynamics.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-analysis.h \
+ /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-distortion.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-filters.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-delay.h \
  /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-tables.h \
@@ -212,6 +214,8 @@ Src/main.o: ../Src/main.c ../Inc/main.h \
 
 /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-mempool.h:
 
+/Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/../leaf-config.h:
+
 /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-math.h:
 
 /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-global.h:
@@ -227,6 +231,8 @@ Src/main.o: ../Src/main.c ../Inc/main.h \
 /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-dynamics.h:
 
 /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-analysis.h:
+
+/Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-distortion.h:
 
 /Users/josnyder/dev/Electrosteel_stringsensor/leaf/leaf/./Inc/leaf-filters.h:
 
