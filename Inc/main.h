@@ -29,7 +29,6 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32h7xx_hal.h"
-#include "stm32h7xx_hal.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -53,13 +52,15 @@ extern "C" {
 #define __ATTR_RAM_D3	__attribute__ ((section(".RAM_D3"))) __attribute__ ((aligned (32)))
 #define __ATTR_SDRAM	__attribute__ ((section(".SDRAM"))) __attribute__ ((aligned (32)))
 
-#define NUM_ADC_CHANNELS 10
+#define NUM_ADC_CHANNELS 4
+#define NUM_ADC_CHANNELS2 2
 #define NUM_STRINGS NUM_ADC_CHANNELS
 #define LHMUTE_COUNTLIM 100
 #define RHMUTE_COUNTLIM 1
 
-#define AUDIO_FRAME_SIZE 512
+#define AUDIO_FRAME_SIZE 4
 #define AUDIO_BUFFER_SIZE AUDIO_FRAME_SIZE * 4
+#define HALF_BUFFER_SIZE AUDIO_FRAME_SIZE * 2
 #define ADC_FRAME_SIZE 4
 #define ADC_BUFFER_SIZE ADC_FRAME_SIZE * 2
 #define LARGE_MEM_SIZE 33554432 //32 MBytes - size of SDRAM IC

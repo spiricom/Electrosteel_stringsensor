@@ -1,8 +1,8 @@
 Src/sd_diskio.o: ../Src/sd_diskio.c \
- /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff_gen_drv.h \
- /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/diskio.h \
- /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/integer.h \
- /Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff.h \
+ /Users/josnyder/dev/Electrobass_stringsensor/Middlewares/Third_Party/FatFs/src/ff_gen_drv.h \
+ /Users/josnyder/dev/Electrobass_stringsensor/Middlewares/Third_Party/FatFs/src/diskio.h \
+ /Users/josnyder/dev/Electrobass_stringsensor/Middlewares/Third_Party/FatFs/src/integer.h \
+ /Users/josnyder/dev/Electrobass_stringsensor/Middlewares/Third_Party/FatFs/src/ff.h \
  ../Inc/ffconf.h ../Inc/main.h \
  ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h \
  ../Inc/stm32h7xx_hal_conf.h \
@@ -48,13 +48,13 @@ Src/sd_diskio.o: ../Src/sd_diskio.c \
  ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_spi_ex.h \
  ../Inc/bsp_driver_sd.h ../Inc/fatfs_platform.h ../Inc/sd_diskio.h
 
-/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff_gen_drv.h:
+/Users/josnyder/dev/Electrobass_stringsensor/Middlewares/Third_Party/FatFs/src/ff_gen_drv.h:
 
-/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/diskio.h:
+/Users/josnyder/dev/Electrobass_stringsensor/Middlewares/Third_Party/FatFs/src/diskio.h:
 
-/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/integer.h:
+/Users/josnyder/dev/Electrobass_stringsensor/Middlewares/Third_Party/FatFs/src/integer.h:
 
-/Users/josnyder/dev/Electrosteel_stringsensor/Middlewares/Third_Party/FatFs/src/ff.h:
+/Users/josnyder/dev/Electrobass_stringsensor/Middlewares/Third_Party/FatFs/src/ff.h:
 
 ../Inc/ffconf.h:
 

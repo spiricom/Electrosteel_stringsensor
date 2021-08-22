@@ -20,6 +20,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "bdma.h"
 #include "dma.h"
 #include "fatfs.h"
 #include "i2c.h"
@@ -36,6 +37,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "leaf.h"
+#include "codec.h"
 #define SDRECORD 0
 #define SAMPLE_RATE 48000
 /* USER CODE END Includes */
@@ -56,10 +58,10 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint8_t SPI_TX[8] __ATTR_RAM_D2;
-uint8_t SPI_RX[8] __ATTR_RAM_D2;
+uint8_t SPI_TX[32] __ATTR_RAM_D2;
+uint8_t SPI_RX[32] __ATTR_RAM_D2;
 
-uint8_t SPI_PLUCK_TX[22] __ATTR_RAM_D2;
+//uint8_t SPI_PLUCK_TX[22] __ATTR_RAM_D2;
 
 
 uint8_t counter;
@@ -76,6 +78,7 @@ int finishSD = 0;
 int32_t audioOutBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t audioInBuffer[AUDIO_BUFFER_SIZE] __ATTR_RAM_D2;
 int32_t ADC_values[NUM_ADC_CHANNELS * ADC_BUFFER_SIZE] __ATTR_RAM_D2;
+int32_t ADC_values2[NUM_ADC_CHANNELS2 * ADC_BUFFER_SIZE] __ATTR_RAM_D3;
 
 #define FILTER_ORDER 2
 #define ATODB_TABLE_SIZE 25000
@@ -95,34 +98,36 @@ int smoothedInt2[NUM_STRINGS];
 int dbSmoothedInt[NUM_STRINGS];
 int tempAbsInt[NUM_STRINGS];
 float atodbTable[ATODB_TABLE_SIZE];
-int storedMaximums[NUM_STRINGS] = {16197, 10646, 10144, 5136, 8447, 27212, 6251, 6126, 5982, 4324};
+int storedMaximums[NUM_STRINGS] = {5000.0f, 5000.0f, 5000.0f, 5000.0f};
 float storedMaxFloats[NUM_STRINGS];
-uint16_t stringPositions[NUM_ADC_CHANNELS];
-uint16_t stringTouchRH[NUM_ADC_CHANNELS];
-int didPlucked[NUM_ADC_CHANNELS];
-int stringSounding[NUM_ADC_CHANNELS];
+volatile uint16_t stringPositions[NUM_ADC_CHANNELS];
+volatile uint16_t stringTouchRH[NUM_ADC_CHANNELS];
+volatile uint16_t stringTouchLH[NUM_ADC_CHANNELS];
+volatile int didPlucked[NUM_ADC_CHANNELS];
+volatile int stringSounding[NUM_ADC_CHANNELS];
 
 int howManyFrames = 48000;
 int brokedIt = 0;
-int didPlucked2[10];
-int pluckDelay[10];
-int pluckValues[10];
+int didPlucked2[4];
+int pluckDelay[4];
+int pluckValues[4];
 
 
 float Dsmoothed;
 float Dsmoothed2;
 float dbSmoothed2;
 
-int armed[NUM_STRINGS] = {0,0,0,0,0,0,0,0,0,0};
+int armed[NUM_STRINGS] = {0,0,0,0};
 float prevdbSmoothed2[NUM_STRINGS];
 int threshOut = 0;
-int stringMaxes[NUM_STRINGS] = {0,0,0,0,0,0,0,0,0,0};
+int stringMaxes[NUM_STRINGS] = {0,0,0,0};
 int downCounter[NUM_STRINGS];
 int armedCounter[NUM_STRINGS];
 float slopeStorage[NUM_STRINGS];
 
 
 tHighpass opticalHighpass[NUM_ADC_CHANNELS][FILTER_ORDER];
+tHighpass EMHighpass[2];
 tVZFilter opticalLowpass[NUM_ADC_CHANNELS][FILTER_ORDER];
 tSlide fastSlide[NUM_ADC_CHANNELS];
 tSlide slowSlide[NUM_ADC_CHANNELS];
@@ -132,6 +137,7 @@ LEAF leaf;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+void PeriphCommonClock_Config(void);
 /* USER CODE BEGIN PFP */
 void MPU_Conf(void);
 void SDRAM_Initialization_sequence(void);
@@ -172,51 +178,56 @@ int main(void)
   /* Configure the system clock */
   SystemClock_Config();
 
+/* Configure the peripherals common clocks */
+  PeriphCommonClock_Config();
+
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_BDMA_Init();
   MX_DMA_Init();
   MX_FMC_Init();
   MX_SDMMC1_SD_Init();
   MX_FATFS_Init();
-  MX_SAI1_Init();
   MX_RNG_Init();
   MX_SPI2_Init();
-  MX_I2C2_Init();
   MX_ADC1_Init();
-  MX_SPI1_Init();
+  MX_ADC3_Init();
+  MX_SAI1_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
   uint32_t tempFPURegisterVal = __get_FPSCR();
   tempFPURegisterVal |= (1<<24); // set the FTZ (flush-to-zero) bit in the FPU control register
   __set_FPSCR(tempFPURegisterVal);
 
-  for (int i = 0; i < 8; i++)
+  for (int i = 0; i < 32; i++)
   {
 	  SPI_TX[i] = counter++;
   }
 
-  for (int i = 0; i < 22; i++)
-  {
-	  SPI_PLUCK_TX[i] = 0;
-  }
-  SPI_PLUCK_TX[0] = 254;//start message
-  SPI_PLUCK_TX[21] = 253;//end message
+  //for (int i = 0; i < 22; i++)
+  //{
+	  //SPI_PLUCK_TX[i] = 0;
+  //}
+  //SPI_PLUCK_TX[0] = 254;//start message
+  //SPI_PLUCK_TX[21] = 253;//end message
 
-
-  HAL_SPI_Receive_DMA(&hspi2, SPI_RX, 8);
+  //HAL_Delay(100);
+  HAL_SPI_TransmitReceive_DMA(&hspi2, SPI_TX, SPI_RX, 32);
 
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
   HAL_Delay(10);
 
   SDRAM_Initialization_sequence();
-  HAL_Delay(10);
+
 
 
   HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)&audioOutBuffer[0], AUDIO_BUFFER_SIZE);
   HAL_SAI_Receive_DMA(&hsai_BlockB1, (uint8_t *)&audioInBuffer[0], AUDIO_BUFFER_SIZE);
+  AudioCodec_init(&hi2c2);
 
 #if SDRECORD
  if(BSP_SD_IsDetected())
@@ -229,16 +240,18 @@ LEAF_init(&leaf, SAMPLE_RATE, mediumMemory, MEDIUM_MEM_SIZE, &randomNumber);
 
 for (int i = 0; i < NUM_ADC_CHANNELS; i++)
 {
-	tThreshold_init(&threshold[i],0.1f * (float)storedMaximums[i], 0.1f * (float)storedMaximums[i], &leaf);
+	tThreshold_init(&threshold[i],0.05f * (float)storedMaximums[i], 0.1f * (float)storedMaximums[i], &leaf);
 	tSlide_init(&fastSlide[i],1.0f,500.0f, &leaf); //500
-	tSlide_init(&slowSlide[i],1.0f,500.0f, &leaf); //500
+	tSlide_init(&slowSlide[i],1.0f,1000.0f, &leaf); //500
 
 	storedMaxFloats[i] = (65535.0f / storedMaximums[i]);
 	for (int j = 0; j < FILTER_ORDER; j++)
 	{
-		tVZFilter_init(&opticalLowpass[i][j], Lowpass, 1000.0f, 0.6f, &leaf);
-		tHighpass_init(&opticalHighpass[i][j], 100.0f, &leaf);
+		tVZFilter_init(&opticalLowpass[i][j], Lowpass, 6000.0f, 0.6f, &leaf); //1000
+		tHighpass_init(&opticalHighpass[i][j], 100.0f, &leaf); //100
 	}
+	tHighpass_init(&EMHighpass[0], 50.0f, &leaf);
+	tHighpass_init(&EMHighpass[1], 50.0f, &leaf);
 }
 
 LEAF_generate_atodb(atodbTable, ATODB_TABLE_SIZE);
@@ -246,6 +259,7 @@ LEAF_generate_atodb(atodbTable, ATODB_TABLE_SIZE);
 
 
  HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&ADC_values,NUM_ADC_CHANNELS * ADC_BUFFER_SIZE);
+ HAL_ADC_Start_DMA(&hadc3,(uint32_t*)&ADC_values2,NUM_ADC_CHANNELS2 * ADC_BUFFER_SIZE);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -278,7 +292,6 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
   /** Supply configuration update enable
   */
@@ -331,11 +344,20 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RNG|RCC_PERIPHCLK_SPI1
-                              |RCC_PERIPHCLK_SPI2|RCC_PERIPHCLK_SAI1
-                              |RCC_PERIPHCLK_SDMMC|RCC_PERIPHCLK_I2C2
-                              |RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_FMC
-                              |RCC_PERIPHCLK_CKPER;
+}
+
+/**
+  * @brief Peripherals Common Clock Configuration
+  * @retval None
+  */
+void PeriphCommonClock_Config(void)
+{
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
+
+  /** Initializes the peripherals clock
+  */
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_SDMMC|RCC_PERIPHCLK_SAI1
+                              |RCC_PERIPHCLK_SPI2|RCC_PERIPHCLK_CKPER;
   PeriphClkInitStruct.PLL2.PLL2M = 25;
   PeriphClkInitStruct.PLL2.PLL2N = 344;
   PeriphClkInitStruct.PLL2.PLL2P = 7;
@@ -344,14 +366,10 @@ void SystemClock_Config(void)
   PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_0;
   PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
   PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
-  PeriphClkInitStruct.FmcClockSelection = RCC_FMCCLKSOURCE_D1HCLK;
   PeriphClkInitStruct.SdmmcClockSelection = RCC_SDMMCCLKSOURCE_PLL2;
   PeriphClkInitStruct.CkperClockSelection = RCC_CLKPSOURCE_HSI;
   PeriphClkInitStruct.Sai1ClockSelection = RCC_SAI1CLKSOURCE_PLL2;
   PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_PLL2;
-  PeriphClkInitStruct.RngClockSelection = RCC_RNGCLKSOURCE_HSI48;
-  PeriphClkInitStruct.I2c123ClockSelection = RCC_I2C123CLKSOURCE_D2PCLK1;
-  PeriphClkInitStruct.AdcClockSelection = RCC_ADCCLKSOURCE_CLKP;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -452,7 +470,7 @@ void SDRAM_Initialization_sequence(void)
     HAL_SDRAM_ProgramRefreshRate(&hsdram1, SDRAM_REFRESH_COUNT);
 }
 
-#ifdef SDRECORD
+#if SDRECORD
 
 volatile FRESULT res2;
 uint8_t rtext[100];                                   /* File read buffer */
@@ -1366,8 +1384,8 @@ void MPU_Conf(void)
 }
 
 
-int totalMaximums[NUM_STRINGS];
-
+volatile int totalMaximums[NUM_STRINGS];
+volatile float pickupMaximums[NUM_STRINGS] = {0.0f, 0.0f, 0.0f, 0.0f};
 int attackDetectPeak2 (int whichString, int tempInt)
 {
 	float output = -1;
@@ -1396,9 +1414,14 @@ int attackDetectPeak2 (int whichString, int tempInt)
 	slopeStorage[whichString] = slope;
 	float integerVersion = Dsmoothed2 * (TWO_TO_16 - 1);
 	threshOut = tThreshold_tick(&threshold[whichString], integerVersion);
-	if ((slope > 0.1f) && (threshOut > 0))
+	if ((slope > 0.05f) && (threshOut > 0))
 	{
 		armed[whichString] = 1;
+		pickupMaximums[whichString] = 0.0f;
+		if (whichString == 1)
+		{
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+		}
 	}
 
 	if (armed[whichString] == 1)
@@ -1412,20 +1435,35 @@ int attackDetectPeak2 (int whichString, int tempInt)
 		if (slope <= 0.0f)
 		{
 			downCounter[whichString]++;
+			if (whichString == 1)
+			{
+				//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
+			}
 		}
 		if (slope > 0.01f)
 		{
 			downCounter[whichString] = 0;
+			if (whichString == 1)
+			{
+				//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET);
+			}
 		}
 		if (downCounter[whichString] > 128)
 		{
 			//found a peak?
-			output = stringMaxes[whichString];
+			//output = stringMaxes[whichString];
+			output = pickupMaximums[whichString] * 65535.0f;
+
 			output = LEAF_clip(0.0f, output, 65535.0f);
 			armed[whichString] = 0;
 			armedCounter[whichString] = 0;
 			downCounter[whichString] = 0;
 			stringMaxes[whichString] = 0;
+			if (whichString == 1)
+			{
+				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
+			}
+
 		}
 	}
 
@@ -1433,12 +1471,15 @@ int attackDetectPeak2 (int whichString, int tempInt)
 	return (int)output;
 }
 
-int stringStates[10];
-
+int stringStates[4];
+uint16_t stringPressed[4];
+int spiBuffer = 0;
+int didPluckedWaiting[4] = {0,0,0,0};
+int didPluckedWaitingCounter[4] = {0,0,0,0};
 void ADC_Frame(int offset)
 {
 	//HAL_GPIO_TogglePin(GPIOG, GPIO_PIN_11);
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+	//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
 	int changeHappened = 0;
 	//sampRecords[currentSamp] = frameCount;
 	//currentSamp++;
@@ -1450,19 +1491,17 @@ void ADC_Frame(int offset)
 		{
 			howManyFrames--;
 		}
-		for (int j = 0; j < 10; j++)
+		for (int j = 0; j < 4; j++)
 		{
 			int tempInt = ADC_values[(i*NUM_ADC_CHANNELS) + j];
 
-			if (j < 8)
-			{
-				stringTouchRH[j] = (SPI_RX[4] >> j) & 1;
-			}
-			else
-			{
-				stringTouchRH[j] = (SPI_RX[5] >> (j-8)) & 1;
-			}
 			didPlucked[j] = attackDetectPeak2(j, tempInt);
+
+			//stringTouchRH[j] = (SPI_RX[(16*spiBuffer) + 8] >> (j+4)) & 1;
+			//stringTouchLH[j] = (SPI_RX[(16*spiBuffer) + 8] >> j) & 1;
+			//int currentnumber = (j*2) + (16*spiBuffer);
+			//stringPressed[j] = (SPI_RX[currentnumber] << 8) + SPI_RX[currentnumber+1];
+
 			/*
 			if (didPlucked2[j] < 0)
 			{
@@ -1496,32 +1535,73 @@ void ADC_Frame(int offset)
 					pluckDelay[j]++;
 				}
 */
-				if ((didPlucked[j] > 0) && (!stringSounding[j]) && (!stringTouchRH[j]))
+
+				//if (stringTouchLH[j] || stringTouchRH[j])
+				//{
+					//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+				//}
+				int LHmuted = 0;
+				HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, (GPIO_PinState) stringTouchRH[1]);
+				if (stringTouchLH[j] && (stringPressed[j] == 65535))
+				{
+					LHmuted = 1;
+				}
+				else
+				{
+					LHmuted = 0;
+				}
+
+				if (((didPlucked[j] > 0) && (!stringSounding[j])) && ((stringTouchRH[j]) || (LHmuted)))
+				{
+					//got an attack but string is muted, hold this for a ms in case the touch sensor data is coming a little late
+					didPluckedWaiting[j] = didPlucked[j];
+					didPluckedWaitingCounter[j] = 500;
+				}
+				if (didPluckedWaitingCounter[j] == 0)
+				{
+					didPluckedWaiting[j] = -1;
+				}
+				if ((didPluckedWaiting[j] >= didPlucked[j]) && (didPluckedWaitingCounter[j] > 0))
+				{
+					didPlucked[j] = didPluckedWaiting[j];
+					didPluckedWaitingCounter[j]--;
+				}
+				else
+				{
+					didPluckedWaiting[j] = 0;
+				}
+
+				if (((didPlucked[j] > 0)) && (!stringSounding[j]) && (!stringTouchRH[j]) && (!LHmuted))
 				{
 					if (didPlucked[j] > totalMaximums[j])
 					{
 						totalMaximums[j] = didPlucked[j];
 					}
-					didPlucked[j] = (float)didPlucked[j] * storedMaxFloats[j];
+					//didPlucked[j] = (float)didPlucked[j];// * storedMaxFloats[j];
 					if (didPlucked[j] > 65535)
 					{
 						didPlucked[j] = 65535;
 					}
 					stringStates[j] = didPlucked[j];
-					SPI_PLUCK_TX[(j * 2) + 1] = (didPlucked[j] >> 8);
-					SPI_PLUCK_TX[(j * 2) + 2] = (didPlucked[j] & 0xff);
+					//SPI_PLUCK_TX[(j * 2)] = (didPlucked[j] >> 8);
+					//SPI_PLUCK_TX[(j * 2)] = (didPlucked[j] & 0xff);
 
 					//a pluck happened! send a message over SPI to the other ICs
 					//TODO: a pluck message
-					//if (j == 1)
-					//{
 
-						//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-					//}
+					if (j == 1)
+					{
+						HAL_GPIO_WritePin(GPIOG, GPIO_PIN_10, GPIO_PIN_SET);
+
+					}
+					//SPI_TX[j*2+(16*spiBuffer)] = (uint8_t) (didPlucked[j] >> 8); //high byte
+					//SPI_TX[j*2+1+(16*spiBuffer)] = (uint8_t) (didPlucked[j] & 0xff); //low byte
+
+
 					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
 					/*
 					SPI_PLUCK_TX[0] = j;
-					SPI_PLUCK_TX[1] = (uint8_t) (didPlucked[j] >> 8); //low byte
+					SPI_PLUCK_TX[1] = (uint8_t) (didPlucked[j] >> 8); //high byte
 					SPI_PLUCK_TX[2] = (uint8_t) (didPlucked[j] & 0xff); //low byte
 					SPI_PLUCK_TX[3] = 0;
 					*/
@@ -1530,7 +1610,7 @@ void ADC_Frame(int offset)
 					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 4);
 				}
 
-				if ((stringTouchRH[j]) && (stringSounding[j]))
+				if (((stringTouchRH[j]) && (stringSounding[j])) || (LHmuted && stringSounding[j]))
 				{
 					//a note-off happened! send a message over SPI to the other ICs
 					/*
@@ -1539,16 +1619,19 @@ void ADC_Frame(int offset)
 					SPI_PLUCK_TX[2] = 0;
 					SPI_PLUCK_TX[3] = 0;
 					*/
-					SPI_PLUCK_TX[(j * 2) + 1] = 0;
-					SPI_PLUCK_TX[(j * 2) + 2] = 0;
-					//if (j == 1)
-					//{
-						//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+					//SPI_PLUCK_TX[(j * 2)] = 0;
+					//SPI_PLUCK_TX[(j * 2)] = 0;
+					//SPI_TX[j*2+(16*spiBuffer)] = 0;
+					//SPI_TX[j*2+1+(16*spiBuffer)] = 0;
+					if (j == 1)
+					{
+						HAL_GPIO_WritePin(GPIOG, GPIO_PIN_10, GPIO_PIN_RESET);
 
-					//}
+					}
 					//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 20);
 					stringStates[j] = 0;
 					changeHappened = 1;
+					pickupMaximums[j] = 0.0f;
 					stringSounding[j] = 0;
 				}
 				#if SDRECORD
@@ -1598,32 +1681,161 @@ void ADC_Frame(int offset)
 		}
 
 	}
-	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+	//HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
 	if (changeHappened)
 	{
-		HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 22);
+		//HAL_SPI_Transmit_DMA(&hspi1, SPI_PLUCK_TX, 22);
+	}
+}
+
+void ADC_EM(int offset)
+{
+	for (int i = offset; i < ADC_FRAME_SIZE + offset; i++)
+	{
+		for (int j = 0; j < NUM_ADC_CHANNELS2; j++)
+		{
+			int tempInt = ADC_values2[(i*NUM_ADC_CHANNELS2) + j];
+			float tempSamp = (((float)tempInt - TWO_TO_15) * INV_TWO_TO_15) * 2.5f;
+			tempSamp = tHighpass_tick(&EMHighpass[j], tempSamp);
+			float absFloat = fabsf(tempSamp);
+			if (absFloat > pickupMaximums[j])
+			{
+				pickupMaximums[j] = absFloat;
+			}
+
+		}
 	}
 }
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
 
-
-	ADC_Frame(ADC_FRAME_SIZE);
-
+	if (hadc == &hadc1)
+	{
+		ADC_Frame(ADC_FRAME_SIZE);
+	}
+	else
+	{
+		ADC_EM(ADC_FRAME_SIZE);
+	}
 
 }
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
-	ADC_Frame(0);
+	if (hadc == &hadc1)
+	{
+		ADC_Frame(0);
+	}
+	else
+	{
+		ADC_EM(0);
+	}
 }
 void HAL_ADC_Error(ADC_HandleTypeDef *hadc)
 {
 
 }
 
-void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+	spiBuffer = 1;
+	//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+
+	for (int j = 0; j < 4; j++)
+	{
+		stringTouchRH[j] = (SPI_RX[24] >> (j+4)) & 1;
+		stringTouchLH[j] = (SPI_RX[24] >> j) & 1;
+		int currentnumber = (j*2) + 16;
+		stringPressed[j] = (SPI_RX[currentnumber] << 8) + SPI_RX[currentnumber+1];
+		//if (stringTouchLH[j] || stringTouchRH[j])
+		//{
+			//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+		//}
+
+		SPI_TX[j*2+(16*spiBuffer)] = (uint8_t) (stringStates[j] >> 8); //high byte
+		SPI_TX[j*2+1+(16*spiBuffer)] = (uint8_t) (stringStates[j] & 0xff); //low byte
+	}
+	//HAL_GPIO_WritePin(GPIOG, GPIO_PIN_10, GPIO_PIN_RESET);
+
+}
+
+void HAL_SPI_TxRxHalfCpltCallback(SPI_HandleTypeDef *hspi)
 {
 	//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+	spiBuffer = 0;
+
+	for (int j = 0; j < 4; j++)
+	{
+		stringTouchRH[j] = (SPI_RX[8] >> (j+4)) & 1;
+		stringTouchLH[j] = (SPI_RX[8] >> j) & 1;
+		stringPressed[j] = (SPI_RX[j*2] << 8) + SPI_RX[(j*2)+1];
+		//if (stringTouchLH[j] || stringTouchRH[j])
+		//{
+			//HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+		//}
+		SPI_TX[j*2+(16*spiBuffer)] = (uint8_t) (stringStates[j] >> 8); //high byte
+		SPI_TX[j*2+1+(16*spiBuffer)] = (uint8_t) (stringStates[j] & 0xff); //low byte
+	}
+	//HAL_GPIO_WritePin(GPIOG, GPIO_PIN_10, GPIO_PIN_SET);
+}
+
+void HAL_SAI_RxCpltCallback(SAI_HandleTypeDef *hsai)
+{
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET);
+	int buffer_offset = HALF_BUFFER_SIZE;
+	for (int i = 0; i < (HALF_BUFFER_SIZE); i += 2)
+	{
+		float theSamples[2];
+		theSamples[0] = ((float)audioInBuffer[buffer_offset + i]) * INV_TWO_TO_31;
+		theSamples[1] = ((float)audioInBuffer[buffer_offset + i + 1]) * INV_TWO_TO_31;
+		float absFloat = fabsf(theSamples[0]);
+		if (absFloat > pickupMaximums[2])
+		{
+			pickupMaximums[2] = absFloat;
+		}
+		absFloat = fabsf(theSamples[1]);
+		if (absFloat > pickupMaximums[3])
+		{
+			pickupMaximums[3] = absFloat;
+		}
+		audioOutBuffer[buffer_offset + i] = (int32_t)(theSamples[1] * TWO_TO_31);
+		audioOutBuffer[buffer_offset + i + 1] = (int32_t)(theSamples[0] * TWO_TO_31);
+	}
+
+
+
+}
+
+volatile int myTest = 0;
+volatile float theSamples[2];
+void HAL_SAI_RxHalfCpltCallback(SAI_HandleTypeDef *hsai)
+{
+	HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_RESET);
+	int buffer_offset = 0;
+	for (int i = 0; i < (HALF_BUFFER_SIZE); i += 2)
+	{
+
+		theSamples[0] = ((float)audioInBuffer[buffer_offset + i]) * INV_TWO_TO_31;
+		theSamples[1] = ((float)audioInBuffer[buffer_offset + i + 1]) * INV_TWO_TO_31;
+
+		float absFloat = fabsf(theSamples[0]);
+		if (absFloat > pickupMaximums[2])
+		{
+			pickupMaximums[2] = absFloat;
+		}
+		absFloat = fabsf(theSamples[1]);
+		if (absFloat > pickupMaximums[3])
+		{
+			pickupMaximums[3] = absFloat;
+			if (pickupMaximums[3] > 0.99f)
+			{
+				myTest = 1;
+			}
+		}
+
+		audioOutBuffer[buffer_offset + i] = (int32_t)(theSamples[1] * TWO_TO_31);
+		audioOutBuffer[buffer_offset + i + 1] = (int32_t)(theSamples[0] * TWO_TO_31);
+	}
+
 }
 
 /* USER CODE END 4 */
